@@ -72,7 +72,7 @@ repositories {
 val mockitoAgent = configurations.create("mockitoAgent")
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.132-stable")
+    compileOnly("io.papermc.paper:paper-api:26.3.build.244-stable")
     compileOnly(files("libs/SnapshotPvpPlugin.jar"))
     implementation(platform("com.intellectualsites.bom:bom-newest:1.56"))
     compileOnly("com.fastasyncworldedit:FastAsyncWorldEdit-Core")
@@ -117,7 +117,7 @@ testing {
 
             dependencies {
                 implementation(sourceSets.main.get().output)
-                implementation("io.papermc.paper:paper-api:26.2.build.132-stable")
+                implementation("io.papermc.paper:paper-api:26.3.build.244-stable")
             }
 
             targets {
