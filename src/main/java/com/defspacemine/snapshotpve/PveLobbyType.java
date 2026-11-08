@@ -1,5 +1,10 @@
 package com.defspacemine.snapshotpve;
 
+import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
+import com.defspacemine.snapshotpvp.lobby.LobbyType;
+import com.defspacemine.snapshotpvp.map.GameMapUtil;
+import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
+import com.sk89q.worldedit.math.BlockVector3;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,14 +13,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.block.Block;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -28,20 +36,9 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.WorldLoadEvent;
-import org.bukkit.util.BoundingBox;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
-
-import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
-import com.defspacemine.snapshotpvp.lobby.LobbyType;
-import com.defspacemine.snapshotpvp.map.GameMapUtil;
-import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
-import com.sk89q.worldedit.math.BlockVector3;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import org.bukkit.util.BoundingBox;
 
 public class PveLobbyType extends LobbyType {
 
@@ -316,7 +313,9 @@ public class PveLobbyType extends LobbyType {
 
         /** Called on plugin disable: take every lobby's level map out of its world. */
         public static void clearInstances() {
-            for (PveLobbyInstance instance : new ArrayList<>(INSTANCES.values())) {
+            for (PveLobbyInstance instance : new ArrayList<>(
+                INSTANCES.values()
+            )) {
                 try {
                     instance.unloadLevel();
                 } catch (RuntimeException exception) {
@@ -593,10 +592,11 @@ public class PveLobbyType extends LobbyType {
 
             Player nearestPlayer = getLobbyPlayers()
                 .stream()
-                .filter(target ->
-                    target != player &&
-                    target.isOnline() &&
-                    target.getScoreboardTags().contains("playingPVE")
+                .filter(
+                    target ->
+                        target != player &&
+                        target.isOnline() &&
+                        target.getScoreboardTags().contains("playingPVE")
                 )
                 .min((first, second) ->
                     Double.compare(
@@ -607,9 +607,7 @@ public class PveLobbyType extends LobbyType {
                 .orElse(null);
             if (nearestPlayer == null) {
                 event.setTo(from);
-                if (
-                    playersWarnedNoActiveTargets.add(player.getUniqueId())
-                ) {
+                if (playersWarnedNoActiveTargets.add(player.getUniqueId())) {
                     player.sendMessage(
                         Component.text(
                             "Cannot teleport: there are no players tagged playingPVE in this PVE lobby.",
@@ -623,10 +621,7 @@ public class PveLobbyType extends LobbyType {
             player.teleport(nearestPlayer.getLocation());
         }
 
-        private boolean intersectsSolidBlock(
-            Player player,
-            Location to
-        ) {
+        private boolean intersectsSolidBlock(Player player, Location to) {
             double halfWidth = player.getWidth() / 2.0;
             BoundingBox playerBox = new BoundingBox(
                 to.getX() - halfWidth,

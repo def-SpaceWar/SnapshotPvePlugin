@@ -272,10 +272,7 @@ public final class PveDialogue {
                         runChoiceCommand(player, yes ? yesCommand : noCommand),
                     new AtomicBoolean(),
                     true,
-                    recipients
-                        .stream()
-                        .map(Player::getUniqueId)
-                        .toList()
+                    recipients.stream().map(Player::getUniqueId).toList()
                 );
                 Component message = checkpointPrompt(
                     dialogue,
