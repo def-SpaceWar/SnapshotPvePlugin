@@ -4,7 +4,30 @@ version: "${VERSION}"
 api-version: "26.1.2"
 author: AUTHOR
 description: DESCRIPTION
+commands:
+  pvecheckpoint:
+    description: Broadcast a styled PVE Yes/No prompt to PVE players; the first playing player to click runs the selected command as themselves.
+    usage: >-
+      /pvecheckpoint <delayTicks> <color> <style|NONE> <sound|NONE> <volume> <pitch>
+      yes=<command...> no=<command...> message=<dialogue...>
+      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Continue to the checkpoint
+  pveprologuedialogue:
+    description: Send colored PVE prologue dialogue with optional same-line appended text, sound, volume, and pitch.
+    usage: >-
+      /pveprologuedialogue <delayTicks> <color> <sound|NONE> <volume> <pitch>
+      <message...> [append=<color> <style|NONE> <text...>]
+      Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens append=GOLD BOLD and the path is clear.
+  pvedefdialogue:
+    description: Send colored PVE dialogue with the defSpaceMine prefix and configurable sound volume and pitch.
+    usage: /pveDefDialogue <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>
+  setpvelevel:
+    description: Set and persist the level tracked for the current PVE lobby instance.
+    usage: /setPveLevel <level 1-20> [pveWorld]
+    permission: snapshotpve.setlevel
 permissions:
+  snapshotpve.setlevel:
+    description: Allows setting the tracked level for a PVE lobby instance.
+    default: op
   example.use:
     description: Allows use of the /example command
     default: true
