@@ -24,9 +24,16 @@ commands:
     description: Set and persist the level tracked for the current PVE lobby instance.
     usage: /setPveLevel <level 1-20> [pveWorld]
     permission: snapshotpve.setlevel
+  startpvelevel:
+    description: Start the selected level for the current PVE lobby instance.
+    usage: /startPveLevel [pveWorld]
+    permission: snapshotpve.startlevel
 permissions:
   snapshotpve.setlevel:
     description: Allows setting the tracked level for a PVE lobby instance.
+    default: op
+  snapshotpve.startlevel:
+    description: Allows starting the level for a PVE lobby instance.
     default: op
   example.use:
     description: Allows use of the /example command

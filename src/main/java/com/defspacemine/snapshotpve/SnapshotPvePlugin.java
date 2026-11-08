@@ -65,6 +65,12 @@ public class SnapshotPvePlugin extends JavaPlugin {
         ).setExecutor((sender, command, label, args) ->
             setPveLevel(sender, args)
         );
+        Objects.requireNonNull(
+            getCommand("startpvelevel"),
+            "startPveLevel command is missing from the plugin descriptor"
+        ).setExecutor((sender, command, label, args) ->
+            startPveLevel(sender, args)
+        );
         LobbyManager.registeredLobbies.add(new PveLobbyType());
     }
 
@@ -133,6 +139,67 @@ public class SnapshotPvePlugin extends JavaPlugin {
                 NamedTextColor.GREEN
             )
         );
+        return true;
+    }
+
+    private boolean startPveLevel(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("snapshotpve.startlevel")) {
+            sender.sendMessage(
+                Component.text(
+                    "You do not have permission to start the PVE level.",
+                    NamedTextColor.RED
+                )
+            );
+            return true;
+        }
+        if (args.length > 1) {
+            sender.sendMessage("Usage: /startPveLevel [pveWorld]");
+            return true;
+        }
+
+        World targetWorld;
+        if (args.length == 1) {
+            targetWorld = Bukkit.getWorld(args[0]);
+        } else if (sender instanceof Player player) {
+            targetWorld = player.getWorld();
+        } else {
+            sender.sendMessage(
+                "Specify a loaded PVE world when running this command from console."
+            );
+            return true;
+        }
+        if (targetWorld == null) {
+            sender.sendMessage("That world is not loaded.");
+            return true;
+        }
+        PveLobbyType.PveLobbyInstance lobby =
+            PveLobbyType.PveLobbyInstance.forWorld(targetWorld);
+        if (lobby == null) {
+            sender.sendMessage(
+                "That world is not associated with an active PVE lobby."
+            );
+            return true;
+        }
+
+        if (lobby.startLevel()) {
+            sender.sendMessage(
+                Component.text(
+                    "Started PVE level " +
+                        lobby.currentLevel.levelNumber +
+                        " in " +
+                        lobby.getWorld().getName() +
+                        ".",
+                    NamedTextColor.GREEN
+                )
+            );
+        } else {
+            sender.sendMessage(
+                Component.text(
+                    "Could not start the PVE level. It may already be running, or a required world is not loaded.",
+                    NamedTextColor.RED
+                )
+            );
+        }
         return true;
     }
 

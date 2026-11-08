@@ -29,7 +29,8 @@ public final class PveDialogue {
         String token,
         BiConsumer<Player, Boolean> callback,
         AtomicBoolean consumed,
-        boolean playingPveOnly
+        boolean playingPveOnly,
+        List<UUID> audience
     ) {}
 
     private PveDialogue() {}
@@ -261,12 +262,20 @@ public final class PveDialogue {
             SnapshotPvePlugin.getInstance(),
             () -> {
                 String token = UUID.randomUUID().toString();
+                List<? extends Player> recipients = players
+                    .stream()
+                    .filter(player -> player.isOnline() && hasPveTag(player))
+                    .toList();
                 PendingChoice pending = new PendingChoice(
                     token,
                     (player, yes) ->
                         runChoiceCommand(player, yes ? yesCommand : noCommand),
                     new AtomicBoolean(),
-                    true
+                    true,
+                    recipients
+                        .stream()
+                        .map(Player::getUniqueId)
+                        .toList()
                 );
                 Component message = checkpointPrompt(
                     dialogue,
@@ -274,10 +283,7 @@ public final class PveDialogue {
                     style,
                     token
                 );
-                for (Player player : players) {
-                    if (!player.isOnline() || !hasPveTag(player)) {
-                        continue;
-                    }
+                for (Player player : recipients) {
                     PENDING_CHOICES.put(player.getUniqueId(), pending);
                     player.sendMessage(message);
                     if (sound != null) {
@@ -324,7 +330,8 @@ public final class PveDialogue {
             token,
             callback,
             new AtomicBoolean(),
-            false
+            false,
+            players.stream().map(Player::getUniqueId).toList()
         );
         for (Player player : players) {
             PENDING_CHOICES.put(player.getUniqueId(), pending);
@@ -376,7 +383,18 @@ public final class PveDialogue {
             return true;
         }
         if (pending.consumed().compareAndSet(false, true)) {
-            pending.callback().accept(player, choice.equalsIgnoreCase("yes"));
+            boolean yes = choice.equalsIgnoreCase("yes");
+            Component announcement = Component.text(
+                player.getName() + " chose " + (yes ? "Yes" : "No"),
+                NamedTextColor.GRAY
+            );
+            for (UUID recipientId : pending.audience()) {
+                Player recipient = Bukkit.getPlayer(recipientId);
+                if (recipient != null && recipient.isOnline()) {
+                    recipient.sendMessage(announcement);
+                }
+            }
+            pending.callback().accept(player, yes);
         }
         return true;
     }

@@ -1,22 +1,18 @@
 package com.defspacemine.snapshotpve;
 
-import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
-import com.defspacemine.snapshotpvp.lobby.LobbyType;
-import com.defspacemine.snapshotpvp.map.GameMapUtil;
-import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
-import com.sk89q.worldedit.math.BlockVector3;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+
 import org.bukkit.Bukkit;
+import org.bukkit.block.Block;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -28,10 +24,24 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.WorldLoadEvent;
+import org.bukkit.util.BoundingBox;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
+
+import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
+import com.defspacemine.snapshotpvp.lobby.LobbyType;
+import com.defspacemine.snapshotpvp.map.GameMapUtil;
+import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
+import com.sk89q.worldedit.math.BlockVector3;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 public class PveLobbyType extends LobbyType {
 
@@ -176,6 +186,8 @@ public class PveLobbyType extends LobbyType {
         // names of the lobby world and its overworld/nether/end worlds
         private final List<String> managedWorldNames;
         final Map<UUID, Location> pendingRespawns = new HashMap<>();
+        private final Set<UUID> pendingAdventureRespawns = new HashSet<>();
+        private final Set<UUID> playersWarnedNoActiveTargets = new HashSet<>();
 
         CurrentLevel currentLevel; // the level this lobby is on (persisted in config)
         boolean levelLoaded; // whether currentLevel's map is currently in the world
@@ -275,10 +287,17 @@ public class PveLobbyType extends LobbyType {
             currentLevel.removeWorld(this);
         }
 
-        /** Where players go when a level ends: the spawn of the level's dimension world. */
+        /** Where players return in the dimension world associated with the current level. */
         private Location getCheckpoint() {
             World dimension = getWorldType(currentLevel.world);
-            return dimension == null ? null : dimension.getSpawnLocation();
+            return dimension == null ? null : new Location(dimension, 0, 65, 0);
+        }
+
+        private Location getLevelSpawn() {
+            World dimension = getWorldType(currentLevel.world);
+            return dimension == null
+                ? null
+                : currentLevel.getSpawnPoint(dimension);
         }
 
         private boolean managesWorld(World candidate) {
@@ -333,6 +352,26 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+        public void onSpectatorTeleport(PlayerTeleportEvent event) {
+            Player player = event.getPlayer();
+            World destination = event.getTo().getWorld();
+            if (
+                player.getGameMode() == GameMode.SPECTATOR &&
+                managedWorldNames.contains(player.getWorld().getName()) &&
+                (destination == null ||
+                    !managedWorldNames.contains(destination.getName()))
+            ) {
+                event.setCancelled(true);
+                player.sendMessage(
+                    Component.text(
+                        "You cannot teleport outside PVE while in spectator mode.",
+                        NamedTextColor.RED
+                    )
+                );
+            }
+        }
+
         @Override
         public World getWorld() {
             return world;
@@ -349,6 +388,27 @@ public class PveLobbyType extends LobbyType {
                 isOnTeam(player, "survivor") ||
                 isOnTeam(player, "spectator")
             );
+        }
+
+        private void clearPveRoleTags(Player player) {
+            player.removeScoreboardTag("playingPVE");
+            player.removeScoreboardTag("spectatingPVE");
+        }
+
+        private boolean teleportToLobby(Player player, Location destination) {
+            boolean hasPveRoleTag = PveDialogue.hasPveTag(player);
+            GameMode previousGameMode = player.getGameMode();
+            if (hasPveRoleTag) {
+                player.setGameMode(GameMode.ADVENTURE);
+            }
+            if (!player.teleport(destination)) {
+                if (hasPveRoleTag) {
+                    player.setGameMode(previousGameMode);
+                }
+                return false;
+            }
+            clearPveRoleTags(player);
+            return true;
         }
 
         private boolean isOnTeam(Player player, String teamName) {
@@ -435,7 +495,7 @@ public class PveLobbyType extends LobbyType {
                       "[SURVIVOR]"
                     : gradientBoldText("[SPECTATOR]");
                 String leftSide =
-                    status + ChatColor.RESET + " " + player.getName() + ":";
+                    status + ChatColor.RESET + " " + player.getName();
 
                 double health = player.getHealth();
                 ChatColor healthColor =
@@ -493,10 +553,121 @@ public class PveLobbyType extends LobbyType {
 
         @Override
         public void onTick() {
+            for (Player player : getLobbyPlayers()) {
+                if (
+                    player.getScoreboardTags().contains("spectatingPVE") &&
+                    player.getGameMode() != GameMode.SPECTATOR
+                ) {
+                    player.setGameMode(GameMode.SPECTATOR);
+                }
+            }
             // if (lobbyState == LobbyState.IN_GAME)
             {
                 // run stuff
             }
+        }
+
+        @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+        public void onSpectatorMove(PlayerMoveEvent event) {
+            Player player = event.getPlayer();
+            if (
+                !managedWorldNames.contains(player.getWorld().getName()) ||
+                !player.getScoreboardTags().contains("spectatingPVE")
+            ) {
+                return;
+            }
+            if (player.getGameMode() != GameMode.SPECTATOR) {
+                player.setGameMode(GameMode.SPECTATOR);
+            }
+
+            Location from = event.getFrom();
+            Location to = event.getTo();
+            if (
+                to == null ||
+                !from.getWorld().equals(to.getWorld()) ||
+                !intersectsSolidBlock(player, to)
+            ) {
+                playersWarnedNoActiveTargets.remove(player.getUniqueId());
+                return;
+            }
+
+            Player nearestPlayer = getLobbyPlayers()
+                .stream()
+                .filter(target ->
+                    target != player &&
+                    target.isOnline() &&
+                    target.getScoreboardTags().contains("playingPVE")
+                )
+                .min((first, second) ->
+                    Double.compare(
+                        distanceSquared(to, first.getLocation()),
+                        distanceSquared(to, second.getLocation())
+                    )
+                )
+                .orElse(null);
+            if (nearestPlayer == null) {
+                event.setTo(from);
+                if (
+                    playersWarnedNoActiveTargets.add(player.getUniqueId())
+                ) {
+                    player.sendMessage(
+                        Component.text(
+                            "Cannot teleport: there are no players tagged playingPVE in this PVE lobby.",
+                            NamedTextColor.RED
+                        )
+                    );
+                }
+                return;
+            }
+            playersWarnedNoActiveTargets.remove(player.getUniqueId());
+            player.teleport(nearestPlayer.getLocation());
+        }
+
+        private boolean intersectsSolidBlock(
+            Player player,
+            Location to
+        ) {
+            double halfWidth = player.getWidth() / 2.0;
+            BoundingBox playerBox = new BoundingBox(
+                to.getX() - halfWidth,
+                to.getY(),
+                to.getZ() - halfWidth,
+                to.getX() + halfWidth,
+                to.getY() + player.getHeight(),
+                to.getZ() + halfWidth
+            );
+            int minX = (int) Math.floor(playerBox.getMinX());
+            int minY = (int) Math.floor(playerBox.getMinY());
+            int minZ = (int) Math.floor(playerBox.getMinZ());
+            int maxX = (int) Math.floor(playerBox.getMaxX());
+            int maxY = (int) Math.floor(playerBox.getMaxY());
+            int maxZ = (int) Math.floor(playerBox.getMaxZ());
+            World destinationWorld = to.getWorld();
+            if (destinationWorld == null) {
+                return false;
+            }
+
+            for (int x = minX; x <= maxX; x++) {
+                for (int y = minY; y <= maxY; y++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        Block block = destinationWorld.getBlockAt(x, y, z);
+                        if (
+                            !block.isPassable() &&
+                            block.getBoundingBox().overlaps(playerBox)
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private double distanceSquared(Location first, Location second) {
+            double x = first.getX() - second.getX();
+            double y = first.getY() - second.getY();
+            double z = first.getZ() - second.getZ();
+            return x * x + y * y + z * z;
         }
 
         @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -509,6 +680,7 @@ public class PveLobbyType extends LobbyType {
             ) {
                 return;
             }
+            deadPlayer.setGameMode(GameMode.SPECTATOR);
 
             Location checkpoint = getCheckpoint();
             if (checkpoint == null) {
@@ -565,16 +737,23 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
             event.setRespawnLocation(destination);
+            boolean returnToLevel = pendingAdventureRespawns.remove(
+                player.getUniqueId()
+            );
             Bukkit.getScheduler().runTaskLater(
                 SnapshotPvpPlugin.instance,
                 () -> {
-                    if (
-                        player.isOnline() &&
-                        isPveParticipant(player) &&
-                        player.teleport(destination) &&
-                        world.equals(destination.getWorld())
-                    ) {
-                        player.removeScoreboardTag("playingPVE");
+                    if (!player.isOnline() || !isPveParticipant(player)) {
+                        return;
+                    }
+                    if (returnToLevel) {
+                        if (player.teleport(destination)) {
+                            player.setGameMode(GameMode.ADVENTURE);
+                        }
+                    } else if (world.equals(destination.getWorld())) {
+                        teleportToLobby(player, destination);
+                    } else {
+                        player.teleport(destination);
                     }
                 },
                 2L
@@ -589,6 +768,8 @@ public class PveLobbyType extends LobbyType {
             for (Player player : getLobbyPlayers()) {
                 PveDialogue.clearPendingChoice(player);
                 pendingRespawns.remove(player.getUniqueId());
+                pendingAdventureRespawns.remove(player.getUniqueId());
+                playersWarnedNoActiveTargets.remove(player.getUniqueId());
             }
             INSTANCES.remove(world.getName(), this);
             managedWorldNames.forEach(
@@ -794,10 +975,22 @@ public class PveLobbyType extends LobbyType {
                 Component.text("I understand.", NamedTextColor.RED)
             );
 
-            // continue: stay in the level's dimension world; otherwise: back to the main lobby
+            // Continuing reloads the level; declining returns players to the main lobby.
             Location spawn = wantsToContinue
-                ? getCheckpoint()
+                ? getLevelSpawn()
                 : world.getSpawnLocation();
+            if (wantsToContinue && !levelLoaded && !startLevel()) {
+                for (Player player : players) {
+                    player.sendMessage(
+                        Component.text(
+                            "Could not reload the PVE level.",
+                            NamedTextColor.RED
+                        )
+                    );
+                }
+                teamDialogueActive = false;
+                return;
+            }
             if (spawn == null) {
                 for (Player player : players) {
                     player.sendMessage(
@@ -816,11 +1009,15 @@ public class PveLobbyType extends LobbyType {
             for (Player player : players) {
                 if (player.isDead()) {
                     pendingRespawns.put(player.getUniqueId(), spawn);
-                } else if (
-                    player.teleport(spawn) &&
-                    !wantsToContinue
-                ) {
-                    player.removeScoreboardTag("playingPVE");
+                    if (wantsToContinue) {
+                        pendingAdventureRespawns.add(player.getUniqueId());
+                    }
+                } else if (wantsToContinue) {
+                    if (player.teleport(spawn)) {
+                        player.setGameMode(GameMode.ADVENTURE);
+                    }
+                } else {
+                    teleportToLobby(player, spawn);
                 }
             }
             teamDialogueActive = false;
