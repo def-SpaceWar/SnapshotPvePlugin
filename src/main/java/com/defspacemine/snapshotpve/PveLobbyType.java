@@ -56,7 +56,6 @@ public class PveLobbyType extends LobbyType {
         WAITING, // everyone needs to ready up
         VOTE_CONFIG, // game settings
         KIT_SELECTION, // choose kits
-        LEVEL,
         IN_GAME,
     }
 
@@ -286,21 +285,32 @@ public class PveLobbyType extends LobbyType {
             return managedWorldNames.contains(candidate.getName());
         }
 
-        public static boolean setPveLevel(World targetWorld, int newLevel) {
-            CurrentLevel next = CurrentLevel.fromNumber(newLevel);
-            if (next == null) {
-                return false;
-            }
+        /** The active lobby that owns this world (lobby world or one of its dimensions), or null. */
+        public static PveLobbyInstance forWorld(World candidate) {
             for (PveLobbyInstance instance : INSTANCES.values()) {
-                if (instance.managesWorld(targetWorld)) {
-                    instance.switchLevel(next);
-                    return true;
+                if (instance.managesWorld(candidate)) {
+                    return instance;
                 }
             }
-            return false;
+            return null;
         }
 
+        /** Called on plugin disable: take every lobby's level map out of its world. */
         public static void clearInstances() {
+            for (PveLobbyInstance instance : new ArrayList<>(INSTANCES.values())) {
+                try {
+                    instance.unloadLevel();
+                } catch (RuntimeException exception) {
+                    SnapshotPvePlugin.getInstance()
+                        .getLogger()
+                        .log(
+                            java.util.logging.Level.WARNING,
+                            "Could not remove the level from " +
+                                instance.world.getName(),
+                            exception
+                        );
+                }
+            }
             INSTANCES.clear();
         }
 
@@ -330,19 +340,14 @@ public class PveLobbyType extends LobbyType {
 
         @Override
         public List<Player> getPlayers() {
-            if (gameOver) return null;
             return getLobbyPlayers();
         }
 
         private boolean isPveParticipant(Player player) {
-            if (
-                player.getScoreboardTags().contains("playingPVE") ||
-                player.getScoreboardTags().contains("spectatingPVE")
-            ) {
-                return true;
-            }
             return (
-                isOnTeam(player, "survivor") || isOnTeam(player, "spectator")
+                PveDialogue.hasPveTag(player) ||
+                isOnTeam(player, "survivor") ||
+                isOnTeam(player, "spectator")
             );
         }
 
@@ -767,10 +772,7 @@ public class PveLobbyType extends LobbyType {
                 recipient.sendMessage(line);
             }
             for (Player player : recipients) {
-                if (
-                    player.getScoreboardTags().contains("playingPVE") ||
-                    player.getScoreboardTags().contains("spectatingPVE")
-                ) {
+                if (PveDialogue.hasPveTag(player)) {
                     player.playSound(
                         player.getLocation(),
                         Sound.BLOCK_BAMBOO_PLACE,

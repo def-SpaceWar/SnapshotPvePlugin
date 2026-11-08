@@ -2,37 +2,45 @@ package com.defspacemine.snapshotpve;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-
-import org.bukkit.Bukkit;
-import org.bukkit.Sound;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
-
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Bukkit;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 
 public final class PveDialogue {
 
-    private static final Map<UUID, PendingChoice> PENDING_CHOICES = new HashMap<>();
+    private static final Map<UUID, PendingChoice> PENDING_CHOICES =
+        new HashMap<>();
 
     private record PendingChoice(
-            String token,
-            BiConsumer<Player, Boolean> callback,
-            AtomicBoolean consumed,
-            boolean playingPveOnly
+        String token,
+        BiConsumer<Player, Boolean> callback,
+        AtomicBoolean consumed,
+        boolean playingPveOnly
     ) {}
 
     private PveDialogue() {}
+
+    /** Whether the player is currently playing or spectating a PVE game. */
+    public static boolean hasPveTag(Player player) {
+        return (
+            player.getScoreboardTags().contains("playingPVE") ||
+            player.getScoreboardTags().contains("spectatingPVE")
+        );
+    }
 
     /**
      * Sends one colored, optionally decorated dialogue line after a delay.
@@ -40,35 +48,44 @@ public final class PveDialogue {
      * Pass null for style to send plain, undecorated text.
      */
     public static BukkitTask sendDelayed(
-            Player player,
-            TextColor color,
-            TextDecoration style,
-            String dialogue,
-            long delayTicks
+        Player player,
+        TextColor color,
+        TextDecoration style,
+        String dialogue,
+        long delayTicks
     ) {
         return sendDelayed(player, color, style, dialogue, null, delayTicks);
     }
 
     public static BukkitTask sendDelayed(
-            Player player,
-            TextColor color,
-            TextDecoration style,
-            String dialogue,
-            Sound sound,
-            long delayTicks
+        Player player,
+        TextColor color,
+        TextDecoration style,
+        String dialogue,
+        Sound sound,
+        long delayTicks
     ) {
-        return sendDelayed(player, color, style, dialogue, sound, 1.0F, 1.0F, delayTicks);
+        return sendDelayed(
+            player,
+            color,
+            style,
+            dialogue,
+            sound,
+            1.0F,
+            1.0F,
+            delayTicks
+        );
     }
 
     public static BukkitTask sendDelayed(
-            Player player,
-            TextColor color,
-            TextDecoration style,
-            String dialogue,
-            Sound sound,
-            float volume,
-            float pitch,
-            long delayTicks
+        Player player,
+        TextColor color,
+        TextDecoration style,
+        String dialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks
     ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(color, "color");
@@ -77,97 +94,110 @@ public final class PveDialogue {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
 
-        Component line = Component.text(dialogue, color);
+        Component message = Component.text(dialogue, color);
         if (style != null) {
-            line = line.decorate(style);
+            message = message.decorate(style);
         }
-
-        Component message = line;
-        return Bukkit.getScheduler().runTaskLater(
-                SnapshotPvePlugin.getInstance(),
-                () -> {
-                    if (player.isOnline()) {
-                        player.sendMessage(message);
-                        if (sound != null) {
-                            player.playSound(player.getLocation(), sound, volume, pitch);
-                        }
-                    }
-                },
-                delayTicks
+        return sendComponentDelayed(
+            player,
+            message,
+            sound,
+            volume,
+            pitch,
+            delayTicks
         );
     }
 
     public static BukkitTask sendAppendedDelayed(
-            Player player,
-            TextColor color,
-            String dialogue,
-            TextColor appendedColor,
-            TextDecoration appendedStyle,
-            String appendedDialogue,
-            Sound sound,
-            float volume,
-            float pitch,
-            long delayTicks
+        Player player,
+        TextColor color,
+        String dialogue,
+        TextColor appendedColor,
+        TextDecoration appendedStyle,
+        String appendedDialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks
     ) {
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
         Objects.requireNonNull(appendedColor, "appendedColor");
         Objects.requireNonNull(appendedDialogue, "appendedDialogue");
 
-        Component message = Component.text(dialogue, color)
-                .append(Component.space());
+        Component message = Component.text(dialogue, color).append(
+            Component.space()
+        );
         Component appended = Component.text(appendedDialogue, appendedColor);
         if (appendedStyle != null) {
             appended = appended.decorate(appendedStyle);
         }
         return sendComponentDelayed(
-                player,
-                message.append(appended),
-                sound,
-                volume,
-                pitch,
-                delayTicks
+            player,
+            message.append(appended),
+            sound,
+            volume,
+            pitch,
+            delayTicks
         );
     }
 
     public static BukkitTask sendDefDelayed(
-            Player player,
-            TextColor color,
-            String dialogue,
-            Sound sound,
-            long delayTicks
+        Player player,
+        TextColor color,
+        String dialogue,
+        Sound sound,
+        long delayTicks
     ) {
-        return sendDefDelayed(player, color, dialogue, sound, 1.0F, 1.0F, delayTicks);
+        return sendDefDelayed(
+            player,
+            color,
+            dialogue,
+            sound,
+            1.0F,
+            1.0F,
+            delayTicks
+        );
     }
 
     public static BukkitTask sendDefDelayed(
-            Player player,
-            TextColor color,
-            String dialogue,
-            Sound sound,
-            float volume,
-            float pitch,
-            long delayTicks
+        Player player,
+        TextColor color,
+        String dialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks
     ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
         Component message = Component.empty()
-                .append(Component.text("<", NamedTextColor.RED))
-                .append(Component.text("defSpaceMine", NamedTextColor.RED)
-                        .decorate(TextDecoration.OBFUSCATED))
-                .append(Component.text("> ", NamedTextColor.RED))
-                .append(Component.text(dialogue, color));
-        return sendComponentDelayed(player, message, sound, volume, pitch, delayTicks);
+            .append(Component.text("<", NamedTextColor.RED))
+            .append(
+                Component.text("defSpaceMine", NamedTextColor.RED).decorate(
+                    TextDecoration.OBFUSCATED
+                )
+            )
+            .append(Component.text("> ", NamedTextColor.RED))
+            .append(Component.text(dialogue, color));
+        return sendComponentDelayed(
+            player,
+            message,
+            sound,
+            volume,
+            pitch,
+            delayTicks
+        );
     }
 
     private static BukkitTask sendComponentDelayed(
-            Player player,
-            Component message,
-            Sound sound,
-            float volume,
-            float pitch,
-            long delayTicks
+        Player player,
+        Component message,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks
     ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(message, "message");
@@ -176,51 +206,47 @@ public final class PveDialogue {
         }
 
         return Bukkit.getScheduler().runTaskLater(
-                SnapshotPvePlugin.getInstance(),
-                () -> {
-                    if (player.isOnline()) {
-                        player.sendMessage(message);
-                        if (sound != null) {
-                            player.playSound(player.getLocation(), sound, volume, pitch);
-                        }
+            SnapshotPvePlugin.getInstance(),
+            () -> {
+                if (player.isOnline()) {
+                    player.sendMessage(message);
+                    if (sound != null) {
+                        player.playSound(
+                            player.getLocation(),
+                            sound,
+                            volume,
+                            pitch
+                        );
                     }
-                },
-                delayTicks
+                }
+            },
+            delayTicks
         );
     }
 
-    public static Component choicePrompt(String prompt, Player player, Consumer<Boolean> callback) {
-        Objects.requireNonNull(prompt, "prompt");
+    public static Component choicePrompt(
+        String prompt,
+        Player player,
+        Consumer<Boolean> callback
+    ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(callback, "callback");
-        String token = UUID.randomUUID().toString();
-        PENDING_CHOICES.put(
-                player.getUniqueId(),
-                new PendingChoice(
-                        token,
-                        (clicker, choice) -> callback.accept(choice),
-                        new AtomicBoolean(),
-                        false
-                )
+        return choicePrompt(prompt, List.of(player), (clicker, choice) ->
+            callback.accept(choice)
         );
-
-        return Component.text(prompt + " ", NamedTextColor.RED)
-                .append(choiceButton(" [YES]", NamedTextColor.GREEN, token, "YES"))
-                .append(Component.space())
-                .append(choiceButton("[NO]", NamedTextColor.RED, token, "NO"));
     }
 
     public static BukkitTask sendCheckpointPrompt(
-            Collection<? extends Player> players,
-            TextColor color,
-            TextDecoration style,
-            String dialogue,
-            Sound sound,
-            float volume,
-            float pitch,
-            long delayTicks,
-            String yesCommand,
-            String noCommand
+        Collection<? extends Player> players,
+        TextColor color,
+        TextDecoration style,
+        String dialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks,
+        String yesCommand,
+        String noCommand
     ) {
         Objects.requireNonNull(players, "players");
         Objects.requireNonNull(color, "color");
@@ -232,67 +258,82 @@ public final class PveDialogue {
         }
 
         return Bukkit.getScheduler().runTaskLater(
-                SnapshotPvePlugin.getInstance(),
-                () -> {
-                    String token = UUID.randomUUID().toString();
-                    PendingChoice pending = new PendingChoice(
-                            token,
-                            (player, yes) -> runChoiceCommand(player, yes ? yesCommand : noCommand),
-                            new AtomicBoolean(),
-                            true
-                    );
-                    Component message = checkpointPrompt(dialogue, color, style, token);
-                    for (Player player : players) {
-                        if (!player.isOnline()
-                                || (!player.getScoreboardTags().contains("playingPVE")
-                                && !player.getScoreboardTags().contains("spectatingPVE"))) {
-                            continue;
-                        }
-                        PENDING_CHOICES.put(player.getUniqueId(), pending);
-                        player.sendMessage(message);
-                        if (sound != null) {
-                            player.playSound(player.getLocation(), sound, volume, pitch);
-                        }
+            SnapshotPvePlugin.getInstance(),
+            () -> {
+                String token = UUID.randomUUID().toString();
+                PendingChoice pending = new PendingChoice(
+                    token,
+                    (player, yes) ->
+                        runChoiceCommand(player, yes ? yesCommand : noCommand),
+                    new AtomicBoolean(),
+                    true
+                );
+                Component message = checkpointPrompt(
+                    dialogue,
+                    color,
+                    style,
+                    token
+                );
+                for (Player player : players) {
+                    if (!player.isOnline() || !hasPveTag(player)) {
+                        continue;
                     }
-                },
-                delayTicks
+                    PENDING_CHOICES.put(player.getUniqueId(), pending);
+                    player.sendMessage(message);
+                    if (sound != null) {
+                        player.playSound(
+                            player.getLocation(),
+                            sound,
+                            volume,
+                            pitch
+                        );
+                    }
+                }
+            },
+            delayTicks
         );
     }
 
     private static Component checkpointPrompt(
-            String dialogue,
-            TextColor color,
-            TextDecoration style,
-            String token
+        String dialogue,
+        TextColor color,
+        TextDecoration style,
+        String token
     ) {
         Component prompt = Component.text(dialogue, color);
         if (style != null) {
             prompt = prompt.decorate(style);
         }
-        return prompt.append(Component.text(": "))
-                .append(choiceButton("[Yes]", NamedTextColor.GREEN, token, "YES"))
-                .append(Component.space())
-                .append(choiceButton("[No]", NamedTextColor.RED, token, "NO"));
+        return prompt
+            .append(Component.text(": "))
+            .append(choiceButton("[Yes]", NamedTextColor.GREEN, token, "YES"))
+            .append(Component.space())
+            .append(choiceButton("[No]", NamedTextColor.RED, token, "NO"));
     }
 
     public static Component choicePrompt(
-            String prompt,
-            Collection<? extends Player> players,
-            BiConsumer<Player, Boolean> callback
+        String prompt,
+        Collection<? extends Player> players,
+        BiConsumer<Player, Boolean> callback
     ) {
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(players, "players");
         Objects.requireNonNull(callback, "callback");
         String token = UUID.randomUUID().toString();
-        PendingChoice pending = new PendingChoice(token, callback, new AtomicBoolean(), false);
+        PendingChoice pending = new PendingChoice(
+            token,
+            callback,
+            new AtomicBoolean(),
+            false
+        );
         for (Player player : players) {
             PENDING_CHOICES.put(player.getUniqueId(), pending);
         }
 
         return Component.text(prompt + " ", NamedTextColor.RED)
-                .append(choiceButton(" [YES]", NamedTextColor.GREEN, token, "YES"))
-                .append(Component.space())
-                .append(choiceButton("[NO]", NamedTextColor.RED, token, "NO"));
+            .append(choiceButton(" [YES]", NamedTextColor.GREEN, token, "YES"))
+            .append(Component.space())
+            .append(choiceButton("[NO]", NamedTextColor.RED, token, "NO"));
     }
 
     private static void runChoiceCommand(Player player, String command) {
@@ -306,18 +347,32 @@ public final class PveDialogue {
         Bukkit.dispatchCommand(player, playerCommand);
     }
 
-    public static boolean handleChoice(Player player, String token, String choice) {
+    public static boolean handleChoice(
+        Player player,
+        String token,
+        String choice
+    ) {
         PendingChoice pending = PENDING_CHOICES.get(player.getUniqueId());
         if (pending == null || !pending.token().equals(token)) {
-            player.sendMessage(Component.text("That checkpoint choice has expired.", NamedTextColor.RED));
+            player.sendMessage(
+                Component.text(
+                    "That checkpoint choice has expired.",
+                    NamedTextColor.RED
+                )
+            );
             return true;
         }
         if (!choice.equalsIgnoreCase("yes") && !choice.equalsIgnoreCase("no")) {
-            player.sendMessage(Component.text("Choose yes or no.", NamedTextColor.RED));
+            player.sendMessage(
+                Component.text("Choose yes or no.", NamedTextColor.RED)
+            );
             return true;
         }
 
-        if (pending.playingPveOnly() && !player.getScoreboardTags().contains("playingPVE")) {
+        if (
+            pending.playingPveOnly() &&
+            !player.getScoreboardTags().contains("playingPVE")
+        ) {
             return true;
         }
         if (pending.consumed().compareAndSet(false, true)) {
@@ -335,15 +390,19 @@ public final class PveDialogue {
     }
 
     private static Component choiceButton(
-            String label,
-            NamedTextColor color,
-            String token,
-            String choice
+        String label,
+        NamedTextColor color,
+        String token,
+        String choice
     ) {
         return Component.text(label, color)
-                .clickEvent(ClickEvent.runCommand("/pvecheckpoint " + token + " " + choice))
-                .hoverEvent(HoverEvent.showText(Component.text("Click to choose " + choice, color)));
+            .clickEvent(
+                ClickEvent.runCommand("/pvecheckpoint " + token + " " + choice)
+            )
+            .hoverEvent(
+                HoverEvent.showText(
+                    Component.text("Click to choose " + choice, color)
+                )
+            );
     }
 }
-    
-   
