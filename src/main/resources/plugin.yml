@@ -6,17 +6,21 @@ author: AUTHOR
 description: DESCRIPTION
 commands:
   pvecheckpoint:
-    description: Broadcast a styled PVE Yes/No prompt to PVE players; the first playing player to click runs the selected command as themselves.
+    description: Broadcast a styled Yes/No prompt to tagged PVE players by default, or to a selector; choose shared or per-player responses.
     usage: >-
       /pvecheckpoint <delayTicks> <color> <style|NONE> <sound|NONE> <volume> <pitch>
-      yes=<command...> no=<command...> message=<dialogue...>
-      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Continue to the checkpoint
+      yes=<command...> no=<command...> message=<dialogue...> [target=<selector>] [scope=PLAYER|EVERYONE]
+      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Continue to the checkpoint scope=PLAYER
+      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Choose for everyone target=@a[tag=playingPVE] scope=EVERYONE
+      Put the selector in target= at the end so it is distinct from message text, for example target=@p or target=@a[tag=joiningPVE]. By default, only players tagged playingPVE or spectatingPVE receive it. Selectors include @a, @p, @r, and @e, with tag filters. scope=PLAYER lets each recipient choose independently; default scope=EVERYONE lets the first recipient choose once for all.
   pveprologuedialogue:
-    description: Send colored PVE prologue dialogue with optional same-line appended text, sound, volume, and pitch.
+    description: Send colored PVE prologue dialogue to tagged PVE players by default, or a selector; supports appended text and sound settings.
     usage: >-
       /pveprologuedialogue <delayTicks> <color> <sound|NONE> <volume> <pitch>
-      <message...> [append=<color> <style|NONE> <text...>]
-      Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens append=GOLD BOLD and the path is clear.
+      <message...> [append=<color> <style|NONE> <text...>] [target=<selector>]
+      Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens target=@p
+      Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens append=GOLD BOLD and the path is clear target=@a[tag=joiningPVE]
+      Without target=, recipients are players tagged playingPVE or spectatingPVE. Selectors resolve in the command sender's context and may include @a, @p, @r, or @e with tag filters.
   pvedefdialogue:
     description: Send colored PVE dialogue with the defSpaceMine prefix and configurable sound volume and pitch.
     usage: /pveDefDialogue <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>
@@ -28,12 +32,19 @@ commands:
     description: Start the selected level for the current PVE lobby instance.
     usage: /startPveLevel [pveWorld]
     permission: snapshotpve.startlevel
+  setpvepvp:
+    description: Enable or disable PvP in all loaded PVE lobby dimension worlds.
+    usage: /setpvepvp <true|false>
+    permission: snapshotpve.setpvp
 permissions:
   snapshotpve.setlevel:
     description: Allows setting the tracked level for a PVE lobby instance.
     default: op
   snapshotpve.startlevel:
     description: Allows starting the level for a PVE lobby instance.
+    default: op
+  snapshotpve.setpvp:
+    description: Allows changing PvP in PVE lobby dimension worlds.
     default: op
   example.use:
     description: Allows use of the /example command

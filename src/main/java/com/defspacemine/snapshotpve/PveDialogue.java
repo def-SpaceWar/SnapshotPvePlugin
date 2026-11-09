@@ -22,6 +22,11 @@ import org.bukkit.scheduler.BukkitTask;
 
 public final class PveDialogue {
 
+    public enum ChoiceScope {
+        PLAYER,
+        EVERYONE,
+    }
+
     private static final Map<UUID, PendingChoice> PENDING_CHOICES =
         new HashMap<>();
 
@@ -29,7 +34,6 @@ public final class PveDialogue {
         String token,
         BiConsumer<Player, Boolean> callback,
         AtomicBoolean consumed,
-        boolean playingPveOnly,
         List<UUID> audience
     ) {}
 
@@ -247,13 +251,16 @@ public final class PveDialogue {
         float pitch,
         long delayTicks,
         String yesCommand,
-        String noCommand
+        String noCommand,
+        ChoiceScope choiceScope,
+        boolean requirePveTag
     ) {
         Objects.requireNonNull(players, "players");
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
         Objects.requireNonNull(yesCommand, "yesCommand");
         Objects.requireNonNull(noCommand, "noCommand");
+        Objects.requireNonNull(choiceScope, "choiceScope");
         if (delayTicks < 0) {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
@@ -261,17 +268,50 @@ public final class PveDialogue {
         return Bukkit.getScheduler().runTaskLater(
             SnapshotPvePlugin.getInstance(),
             () -> {
-                String token = UUID.randomUUID().toString();
                 List<? extends Player> recipients = players
                     .stream()
-                    .filter(player -> player.isOnline() && hasPveTag(player))
+                    .filter(player ->
+                        player.isOnline() &&
+                        (!requirePveTag || hasPveTag(player))
+                    )
                     .toList();
+                if (choiceScope == ChoiceScope.PLAYER) {
+                    for (Player player : recipients) {
+                        String token = UUID.randomUUID().toString();
+                        PENDING_CHOICES.put(
+                            player.getUniqueId(),
+                            new PendingChoice(
+                                token,
+                                (clicker, yes) ->
+                                    runChoiceCommand(
+                                        clicker,
+                                        yes ? yesCommand : noCommand
+                                    ),
+                                new AtomicBoolean(),
+                                List.of(player.getUniqueId())
+                            )
+                        );
+                        player.sendMessage(
+                            checkpointPrompt(dialogue, color, style, token)
+                        );
+                        if (sound != null) {
+                            player.playSound(
+                                player.getLocation(),
+                                sound,
+                                volume,
+                                pitch
+                            );
+                        }
+                    }
+                    return;
+                }
+
+                String token = UUID.randomUUID().toString();
                 PendingChoice pending = new PendingChoice(
                     token,
                     (player, yes) ->
                         runChoiceCommand(player, yes ? yesCommand : noCommand),
                     new AtomicBoolean(),
-                    true,
                     recipients.stream().map(Player::getUniqueId).toList()
                 );
                 Component message = checkpointPrompt(
@@ -327,7 +367,6 @@ public final class PveDialogue {
             token,
             callback,
             new AtomicBoolean(),
-            false,
             players.stream().map(Player::getUniqueId).toList()
         );
         for (Player player : players) {
@@ -373,12 +412,6 @@ public final class PveDialogue {
             return true;
         }
 
-        if (
-            pending.playingPveOnly() &&
-            !player.getScoreboardTags().contains("playingPVE")
-        ) {
-            return true;
-        }
         if (pending.consumed().compareAndSet(false, true)) {
             boolean yes = choice.equalsIgnoreCase("yes");
             Component announcement = Component.text(

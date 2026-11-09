@@ -1,15 +1,12 @@
 package com.defspacemine.snapshotpve;
 
-import com.defspacemine.snapshotpvp.lobby.LobbyManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
+
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -20,6 +17,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import com.defspacemine.snapshotpvp.lobby.LobbyManager;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 
 public class SnapshotPvePlugin extends JavaPlugin {
 
@@ -71,7 +74,64 @@ public class SnapshotPvePlugin extends JavaPlugin {
         ).setExecutor((sender, command, label, args) ->
             startPveLevel(sender, args)
         );
+        Objects.requireNonNull(
+            getCommand("setpvepvp"),
+            "setPvePvp command is missing from the plugin descriptor"
+        ).setExecutor((sender, command, label, args) ->
+            setPvePvp(sender, args)
+        );
         LobbyManager.registeredLobbies.add(new PveLobbyType());
+    }
+
+    private boolean setPvePvp(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("snapshotpve.setpvp")) {
+            sender.sendMessage(
+                Component.text(
+                    "You do not have permission to change PVE PvP.",
+                    NamedTextColor.RED
+                )
+            );
+            return true;
+        }
+        if (args.length != 1) {
+            sender.sendMessage("Usage: /setpvepvp <true|false>");
+            return true;
+        }
+
+        boolean enabled;
+        if (args[0].equalsIgnoreCase("true")) {
+            enabled = true;
+        } else if (args[0].equalsIgnoreCase("false")) {
+            enabled = false;
+        } else {
+            sender.sendMessage("PvP must be true or false.");
+            return true;
+        }
+
+        int updatedWorlds = PveLobbyType.PveLobbyInstance.setPvpForAllLobbies(
+            enabled
+        );
+        if (updatedWorlds == 0) {
+            sender.sendMessage(
+                Component.text(
+                    "No loaded PVE lobby dimension worlds were found.",
+                    NamedTextColor.RED
+                )
+            );
+            return true;
+        }
+
+        sender.sendMessage(
+            Component.text(
+                "PvP is now " +
+                    (enabled ? "enabled" : "disabled") +
+                    " in " +
+                    updatedWorlds +
+                    " loaded PVE dimension world(s).",
+                NamedTextColor.GREEN
+            )
+        );
+        return true;
     }
 
     private boolean setPveLevel(CommandSender sender, String[] args) {
@@ -293,22 +353,40 @@ public class SnapshotPvePlugin extends JavaPlugin {
             return true;
         }
 
+        int messageEnd = args.length;
+        String targetSelector = null;
+        if (
+            !includeDefSpaceMine &&
+            messageEnd > 5 &&
+            args[messageEnd - 1].regionMatches(true, 0, "target=", 0, 7)
+        ) {
+            targetSelector = args[messageEnd - 1].substring(7);
+            if (!targetSelector.startsWith("@")) {
+                sendDialogueSyntaxError(
+                    sender,
+                    commandName,
+                    "target= must be a Minecraft selector such as @a, @p, @r, or @e."
+                );
+                return true;
+            }
+            messageEnd--;
+        }
         int appendIndex = includeDefSpaceMine
             ? -1
-            : findMarker(args, 5, "append=");
+            : findMarker(args, 5, messageEnd, "append=");
         String dialogue = String.join(
             " ",
             java.util.Arrays.copyOfRange(
                 args,
                 5,
-                appendIndex < 0 ? args.length : appendIndex
+                appendIndex < 0 ? messageEnd : appendIndex
             )
         );
         NamedTextColor appendedColor = null;
         TextDecoration appendedStyle = null;
         String appendedDialogue = null;
         if (appendIndex >= 0) {
-            if (appendIndex + 3 >= args.length) {
+            if (appendIndex + 3 >= messageEnd) {
                 sendDialogueSyntaxError(
                     sender,
                     commandName,
@@ -339,7 +417,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
             }
             appendedDialogue = String.join(
                 " ",
-                java.util.Arrays.copyOfRange(args, appendIndex + 3, args.length)
+                java.util.Arrays.copyOfRange(args, appendIndex + 3, messageEnd)
             );
             if (appendedDialogue.isBlank()) {
                 sendDialogueSyntaxError(
@@ -358,7 +436,13 @@ public class SnapshotPvePlugin extends JavaPlugin {
             );
             return true;
         }
-        for (Player player : getDialogueTargets(sender)) {
+        Collection<? extends Player> targets = targetSelector == null
+            ? getDialogueTargets(sender)
+            : selectPlayerTargets(sender, targetSelector);
+        if (targets == null) {
+            return true;
+        }
+        for (Player player : targets) {
             if (includeDefSpaceMine) {
                 PveDialogue.sendDefDelayed(
                     player,
@@ -409,7 +493,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
                 commandName +
                 " <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>" +
                 (commandName.equals("pvePrologueDialogue")
-                    ? " [append=<color> <style|NONE> <text...>]"
+                    ? " [append=<color> <style|NONE> <text...>] [target=<selector>]"
                     : "")
         );
     }
@@ -419,7 +503,8 @@ public class SnapshotPvePlugin extends JavaPlugin {
             sender.sendMessage(
                 "Usage: /pvecheckpoint <delayTicks> <color> <style|NONE> <sound|NONE> " +
                     "<volume> <pitch> " +
-                    "yes=<command...> no=<command...> message=<dialogue...>"
+                    "yes=<command...> no=<command...> message=<dialogue...> " +
+                    "[target=<selector>] [scope=PLAYER|EVERYONE]"
             );
             return true;
         }
@@ -483,10 +568,54 @@ public class SnapshotPvePlugin extends JavaPlugin {
 
         String yesCommand = joinSection(args, 6, noIndex, "yes=");
         String noCommand = joinSection(args, noIndex, messageIndex, "no=");
+        int messageEnd = args.length;
+        String targetSelector = null;
+        PveDialogue.ChoiceScope choiceScope =
+            PveDialogue.ChoiceScope.EVERYONE;
+        boolean foundTarget = false;
+        boolean foundScope = false;
+        while (messageEnd > messageIndex + 1) {
+            String option = args[messageEnd - 1];
+            if (option.regionMatches(true, 0, "target=", 0, 7)) {
+                if (foundTarget) {
+                    sender.sendMessage("Specify target= only once.");
+                    return true;
+                }
+                targetSelector = option.substring(7);
+                if (!targetSelector.startsWith("@")) {
+                    sender.sendMessage(
+                        "target= must be a Minecraft selector such as @a, @p, @r, or @e."
+                    );
+                    return true;
+                }
+                foundTarget = true;
+                messageEnd--;
+            } else if (option.regionMatches(true, 0, "scope=", 0, 6)) {
+                if (foundScope) {
+                    sender.sendMessage("Specify scope= only once.");
+                    return true;
+                }
+                String scope = option.substring(6);
+                if (scope.equalsIgnoreCase("PLAYER")) {
+                    choiceScope = PveDialogue.ChoiceScope.PLAYER;
+                } else if (scope.equalsIgnoreCase("EVERYONE")) {
+                    choiceScope = PveDialogue.ChoiceScope.EVERYONE;
+                } else {
+                    sender.sendMessage(
+                        "Use scope=PLAYER or scope=EVERYONE."
+                    );
+                    return true;
+                }
+                foundScope = true;
+                messageEnd--;
+            } else {
+                break;
+            }
+        }
         String dialogue = joinSection(
             args,
             messageIndex,
-            args.length,
+            messageEnd,
             "message="
         );
         if (yesCommand.isBlank() || noCommand.isBlank() || dialogue.isBlank()) {
@@ -496,8 +625,18 @@ public class SnapshotPvePlugin extends JavaPlugin {
             return true;
         }
 
+        Collection<? extends Player> targets;
+        if (targetSelector == null) {
+            targets = getDialogueTargets(sender);
+        } else {
+            targets = selectPlayerTargets(sender, targetSelector);
+            if (targets == null) {
+                return true;
+            }
+        }
+
         PveDialogue.sendCheckpointPrompt(
-            getDialogueTargets(sender),
+            targets,
             color,
             style,
             dialogue,
@@ -506,13 +645,42 @@ public class SnapshotPvePlugin extends JavaPlugin {
             pitch,
             delayTicks,
             yesCommand,
-            noCommand
+            noCommand,
+            choiceScope,
+            targetSelector == null
         );
         return true;
     }
 
+    private Collection<? extends Player> selectPlayerTargets(
+        CommandSender sender,
+        String targetSelector
+    ) {
+        try {
+            return Bukkit.selectEntities(sender, targetSelector)
+                .stream()
+                .filter(Player.class::isInstance)
+                .map(Player.class::cast)
+                .toList();
+        } catch (IllegalArgumentException exception) {
+            sender.sendMessage(
+                "Invalid target selector: " + exception.getMessage()
+            );
+            return null;
+        }
+    }
+
     private int findMarker(String[] args, int start, String marker) {
-        for (int i = start; i < args.length; i++) {
+        return findMarker(args, start, args.length, marker);
+    }
+
+    private int findMarker(
+        String[] args,
+        int start,
+        int end,
+        String marker
+    ) {
+        for (int i = start; i < end; i++) {
             if (args[i].regionMatches(true, 0, marker, 0, marker.length())) {
                 return i;
             }

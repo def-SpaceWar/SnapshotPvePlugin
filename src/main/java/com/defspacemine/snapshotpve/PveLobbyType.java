@@ -1,10 +1,5 @@
 package com.defspacemine.snapshotpve;
 
-import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
-import com.defspacemine.snapshotpvp.lobby.LobbyType;
-import com.defspacemine.snapshotpvp.map.GameMapUtil;
-import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
-import com.sk89q.worldedit.math.BlockVector3;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -13,10 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
@@ -39,6 +31,17 @@ import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.util.BoundingBox;
+
+import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
+import com.defspacemine.snapshotpvp.lobby.LobbyType;
+import com.defspacemine.snapshotpvp.map.GameMapUtil;
+import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
+import com.sk89q.worldedit.math.BlockVector3;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 public class PveLobbyType extends LobbyType {
 
@@ -311,6 +314,21 @@ public class PveLobbyType extends LobbyType {
             return null;
         }
 
+        /** Sets PvP for every loaded dimension world in each active PVE lobby. */
+        public static int setPvpForAllLobbies(boolean enabled) {
+            int updatedWorlds = 0;
+            for (PveLobbyInstance instance : INSTANCES.values()) {
+                for (WorldType type : WorldType.values()) {
+                    World dimension = instance.getWorldType(type);
+                    if (dimension != null) {
+                        dimension.setPVP(enabled);
+                        updatedWorlds++;
+                    }
+                }
+            }
+            return updatedWorlds;
+        }
+
         /** Called on plugin disable: take every lobby's level map out of its world. */
         public static void clearInstances() {
             for (PveLobbyInstance instance : new ArrayList<>(
@@ -344,7 +362,7 @@ public class PveLobbyType extends LobbyType {
         public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
             Player player = event.getPlayer();
             if (
-                isPveParticipant(player) &&
+                canSeePveSidebar(player) &&
                 managedWorldNames.contains(player.getWorld().getName())
             ) {
                 scoreboardHandler(player);
@@ -427,7 +445,7 @@ public class PveLobbyType extends LobbyType {
         }
 
         private void scoreboardHandler(Player viewer) {
-            if (!isPveParticipant(viewer)) {
+            if (!canSeePveSidebar(viewer)) {
                 return;
             }
             if (gameOver) {
@@ -478,6 +496,57 @@ public class PveLobbyType extends LobbyType {
             );
             GlobalScoreboardManager.setHiddenScore(objective, " ", position--);
 
+            List<Player> lobbyPlayers = getLobbyPlayers();
+            if (
+                hasLobbyTag(lobbyPlayers, "randomPveEffects")
+            ) {
+                GlobalScoreboardManager.setHiddenScore(
+                    objective,
+                    ChatColor.GRAY + "RANDOMIZED EFFECTS",
+                    ChatColor.GREEN + "ON",
+                    position--
+                );
+            }
+            if (hasLobbyTag(lobbyPlayers, "creakingPVE")) {
+                GlobalScoreboardManager.setHiddenScore(
+                    objective,
+                    ChatColor.GRAY + "CREAKING",
+                    ChatColor.GREEN + "ON",
+                    position--
+                );
+            }
+            if (hasLobbyTag(lobbyPlayers, "timedPVE")) {
+                GlobalScoreboardManager.setHiddenScore(
+                    objective,
+                    ChatColor.GRAY + "TIMED",
+                    ChatColor.GREEN + "ON",
+                    position--
+                );
+            }
+
+            Boolean pvpEnabled = getLobbyPvpSetting();
+            String friendlyFire = pvpEnabled == null
+                ? ChatColor.GRAY + "UNKNOWN"
+                : pvpEnabled
+                  ? ChatColor.GREEN + "ENABLED"
+                  : ChatColor.RED + "DISABLED";
+            GlobalScoreboardManager.setHiddenScore(
+                objective,
+                ChatColor.GRAY + "FRIENDLY FIRE",
+                friendlyFire,
+                position--
+            );
+
+            String difficulty = getLobbyDifficulty(lobbyPlayers);
+            if (difficulty != null) {
+                GlobalScoreboardManager.setHiddenScore(
+                    objective,
+                    ChatColor.GRAY + "DIFFICULTY",
+                    difficulty,
+                    position--
+                );
+            }
+
             players.sort((first, second) ->
                 first.getName().compareToIgnoreCase(second.getName())
             );
@@ -522,6 +591,48 @@ public class PveLobbyType extends LobbyType {
             }
 
             GlobalScoreboardManager.setupScoreboardHP(board, players);
+        }
+
+        private boolean canSeePveSidebar(Player player) {
+            return (
+                isPveParticipant(player) ||
+                player.getScoreboardTags().contains("inPVELobby")
+            );
+        }
+
+        private boolean hasLobbyTag(List<Player> lobbyPlayers, String tag) {
+            return lobbyPlayers
+                .stream()
+                .anyMatch(player -> player.getScoreboardTags().contains(tag));
+        }
+
+        private Boolean getLobbyPvpSetting() {
+            for (WorldType type : WorldType.values()) {
+                World dimension = getWorldType(type);
+                if (dimension != null) {
+                    return dimension.getPVP();
+                }
+            }
+            return null;
+        }
+
+        private String getLobbyDifficulty(List<Player> lobbyPlayers) {
+            String[] names = { "DEBUG", "EASY", "NORMAL", "HARD", "ASCENDED" };
+            for (int difficulty = 0; difficulty < names.length; difficulty++) {
+                String tag = "difficulty" + difficulty;
+                if (hasLobbyTag(lobbyPlayers, tag)) {
+                    ChatColor color = difficulty == 0
+                        ? ChatColor.GREEN
+                        : difficulty == 4
+                          ? ChatColor.RED
+                          : ChatColor.WHITE;
+                    String style = difficulty == 0 || difficulty == 4
+                        ? ChatColor.BOLD.toString()
+                        : "";
+                    return color + style + names[difficulty];
+                }
+            }
+            return null;
         }
 
         private String gradientBoldText(String text) {
@@ -722,6 +833,20 @@ public class PveLobbyType extends LobbyType {
                 },
                 2L
             );
+        }
+
+        private void resetLobbySettings() {
+            for (WorldType type : WorldType.values()) {
+                World dimension = getWorldType(type);
+                if (dimension != null) {
+                    dimension.setPVP(false);
+                }
+            }
+            for (Player player : getLobbyPlayers()) {
+                player.removeScoreboardTag("creakingPVE");
+                player.removeScoreboardTag("randomPveEffects");
+                player.removeScoreboardTag("timedPVE");
+            }
         }
 
         @EventHandler(priority = EventPriority.HIGHEST)
@@ -1001,6 +1126,9 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
 
+            if (!wantsToContinue) {
+                resetLobbySettings();
+            }
             for (Player player : players) {
                 if (player.isDead()) {
                     pendingRespawns.put(player.getUniqueId(), spawn);
