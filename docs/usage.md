@@ -1,5 +1,31 @@
 # Extending the Example Code
 
+### Summoned mob dialogue and prologue sequences
+
+Summon any spawnable entity type in the executing player's, entity's, or command block's world.
+Use absolute coordinates or `~`/`~offset` relative to the sender. Provide SNBT as a compound, or
+use `-` when no custom NBT is needed. Each dialogue entry uses
+`COLOR%STYLE%weight%text`, with commas between entries. Use `DEFAULT` for WHITE and `NONE` for
+plain text:
+
+```text
+/pvesummon <mob> <x> <y> <z> [<snbt>|-] <color>%<style>%<weight>%<text>,...
+/pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,CustomName:'{"text":"Guide"}'} GOLD%BOLD%70%Welcome traveler.,RED%ITALIC%30%The road is dangerous.
+/pvesummon minecraft:zombie ~2 ~ ~ {IsBaby:1b} DEFAULT%NONE%80%Brains!,WHITE%BOLD%20%Run!
+```
+
+One line is picked on each right-click, using the percentages as weights; they don't need to add up
+to 100. Dialogue text can't contain commas because commas separate entries. Dialogue is held in
+memory and removed when the entity dies or the plugin shuts down.
+
+For prologue dialogue, command blocks can call the existing `/pveprologuedialogue` command for each
+line in a sequence. Chain command blocks or use delays to control the order; for example:
+
+```text
+/pveprologuedialogue 0 GOLD NONE 1 1 The journey begins. target=@a[tag=playingPVE]
+/pveprologuedialogue 40 WHITE NONE 1 1 Follow the path ahead. target=@a[tag=playingPVE]
+```
+
 ### Adding new top-level commands
 To add an entirely new command (e.g. `/fly`), follow the `ExampleCommand` pattern:
 

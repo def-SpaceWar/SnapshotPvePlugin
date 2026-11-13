@@ -24,6 +24,10 @@ commands:
   pvedefdialogue:
     description: Send colored PVE dialogue with the defSpaceMine prefix and configurable sound volume and pitch.
     usage: /pveDefDialogue <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>
+  pvesummon:
+    description: Summon a mob with SNBT and weighted dialogue for player interactions.
+    usage: /pvesummon <mob> <x> <y> <z> [<snbt>|-] <color>%<style>%<weight>%<text>,...
+    permission: snapshotpve.summon
   setpvelevel:
     description: Set and persist the level tracked for the current PVE lobby instance.
     usage: /setPveLevel <level 1-20> [pveWorld]
@@ -45,6 +49,9 @@ permissions:
     default: op
   snapshotpve.setpvp:
     description: Allows changing PvP in PVE lobby dimension worlds.
+    default: op
+  snapshotpve.summon:
+    description: Allows summoning mobs with custom dialogue.
     default: op
   example.use:
     description: Allows use of the /example command

@@ -9,27 +9,33 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
+
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.Bukkit;
-import org.bukkit.Sound;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 
+// Shared chat and clickable-choice bits for PVE
 public final class PveDialogue {
 
+    // Whether one click decides for the player or the whole group
     public enum ChoiceScope {
         PLAYER,
         EVERYONE,
     }
 
+    // One active prompt per player UUID
     private static final Map<UUID, PendingChoice> PENDING_CHOICES =
         new HashMap<>();
 
+    // Click token, callback, one-shot flag, and who hears the result
     private record PendingChoice(
         String token,
         BiConsumer<Player, Boolean> callback,
@@ -39,7 +45,7 @@ public final class PveDialogue {
 
     private PveDialogue() {}
 
-    /** Whether the player is currently playing or spectating a PVE game. */
+    /** Playing or spectating PVE right now */
     public static boolean hasPveTag(Player player) {
         return (
             player.getScoreboardTags().contains("playingPVE") ||
@@ -47,11 +53,7 @@ public final class PveDialogue {
         );
     }
 
-    /**
-     * Sends one colored, optionally decorated dialogue line after a delay.
-     * The delay is measured in ticks (20 ticks is approximately 1 second).
-     * Pass null for style to send plain, undecorated text.
-     */
+    /** One colored line, delayed by ticks; null style means plain text */
     public static BukkitTask sendDelayed(
         Player player,
         TextColor color,
@@ -62,6 +64,7 @@ public final class PveDialogue {
         return sendDelayed(player, color, style, dialogue, null, delayTicks);
     }
 
+    // Same line helper, with the default sound volume and pitch
     public static BukkitTask sendDelayed(
         Player player,
         TextColor color,
@@ -82,6 +85,7 @@ public final class PveDialogue {
         );
     }
 
+    // Full control over the line, sound, and timing
     public static BukkitTask sendDelayed(
         Player player,
         TextColor color,
@@ -95,11 +99,13 @@ public final class PveDialogue {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
+        // Negative delays are almost always a caller mistake
         if (delayTicks < 0) {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
 
         Component message = Component.text(dialogue, color);
+        // Leave the component alone when no style was requested
         if (style != null) {
             message = message.decorate(style);
         }
@@ -113,6 +119,7 @@ public final class PveDialogue {
         );
     }
 
+    // A second colored bit on the same line
     public static BukkitTask sendAppendedDelayed(
         Player player,
         TextColor color,
@@ -130,6 +137,7 @@ public final class PveDialogue {
         Objects.requireNonNull(appendedColor, "appendedColor");
         Objects.requireNonNull(appendedDialogue, "appendedDialogue");
 
+        // Build both pieces separately so each can keep its own style
         Component message = Component.text(dialogue, color).append(
             Component.space()
         );
@@ -147,6 +155,7 @@ public final class PveDialogue {
         );
     }
 
+    // Prefixed speaker line with the usual sound settings
     public static BukkitTask sendDefDelayed(
         Player player,
         TextColor color,
@@ -165,6 +174,7 @@ public final class PveDialogue {
         );
     }
 
+    // Full control over the speaker line's sound and timing
     public static BukkitTask sendDefDelayed(
         Player player,
         TextColor color,
@@ -177,6 +187,7 @@ public final class PveDialogue {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
+        // Hidden nameplate-style prefix, then the actual line
         Component message = Component.empty()
             .append(Component.text("<", NamedTextColor.RED))
             .append(
@@ -196,6 +207,7 @@ public final class PveDialogue {
         );
     }
 
+    // One scheduler path for all the delayed chat helpers
     private static BukkitTask sendComponentDelayed(
         Player player,
         Component message,
@@ -206,6 +218,7 @@ public final class PveDialogue {
     ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(message, "message");
+        // Keep invalid delays from reaching Bukkit's scheduler
         if (delayTicks < 0) {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
@@ -213,6 +226,7 @@ public final class PveDialogue {
         return Bukkit.getScheduler().runTaskLater(
             SnapshotPvePlugin.getInstance(),
             () -> {
+                // Skip players who left before the timer fired
                 if (player.isOnline()) {
                     player.sendMessage(message);
                     if (sound != null) {
@@ -229,6 +243,7 @@ public final class PveDialogue {
         );
     }
 
+    // Single-player prompt adapter
     public static Component choicePrompt(
         String prompt,
         Player player,
@@ -241,6 +256,7 @@ public final class PveDialogue {
         );
     }
 
+    // Delayed Yes/No prompt, with either per-player or shared choice behavior
     public static BukkitTask sendCheckpointPrompt(
         Collection<? extends Player> players,
         TextColor color,
@@ -268,6 +284,7 @@ public final class PveDialogue {
         return Bukkit.getScheduler().runTaskLater(
             SnapshotPvePlugin.getInstance(),
             () -> {
+                // Recheck the audience when the delay ends
                 List<? extends Player> recipients = players
                     .stream()
                     .filter(player ->
@@ -276,6 +293,7 @@ public final class PveDialogue {
                     )
                     .toList();
                 if (choiceScope == ChoiceScope.PLAYER) {
+                    // Give each player a separate token and callback
                     for (Player player : recipients) {
                         String token = UUID.randomUUID().toString();
                         PENDING_CHOICES.put(
@@ -306,6 +324,7 @@ public final class PveDialogue {
                     return;
                 }
 
+                // One token shared by everyone; first click wins
                 String token = UUID.randomUUID().toString();
                 PendingChoice pending = new PendingChoice(
                     token,
@@ -337,6 +356,7 @@ public final class PveDialogue {
         );
     }
 
+    // Colored prompt text followed by its clickable buttons
     private static Component checkpointPrompt(
         String dialogue,
         TextColor color,
@@ -354,6 +374,7 @@ public final class PveDialogue {
             .append(choiceButton("[No]", NamedTextColor.RED, token, "NO"));
     }
 
+    // One shared prompt component and callback for a player collection
     public static Component choicePrompt(
         String prompt,
         Collection<? extends Player> players,
@@ -373,13 +394,16 @@ public final class PveDialogue {
             PENDING_CHOICES.put(player.getUniqueId(), pending);
         }
 
+        // Reuse the same buttons so the group shares one answer
         return Component.text(prompt + " ", NamedTextColor.RED)
             .append(choiceButton(" [YES]", NamedTextColor.GREEN, token, "YES"))
             .append(Component.space())
             .append(choiceButton("[NO]", NamedTextColor.RED, token, "NO"));
     }
 
+    // Dispatch a chosen command as the player, with a tiny placeholder swap
     private static void runChoiceCommand(Player player, String command) {
+        // Dash means intentionally do nothing
         if (command.equals("-")) {
             return;
         }
@@ -390,6 +414,7 @@ public final class PveDialogue {
         Bukkit.dispatchCommand(player, playerCommand);
     }
 
+    // Validate a clicked button and run its choice once
     public static boolean handleChoice(
         Player player,
         String token,
@@ -413,6 +438,7 @@ public final class PveDialogue {
         }
 
         if (pending.consumed().compareAndSet(false, true)) {
+            // Let the whole audience know who answered
             boolean yes = choice.equalsIgnoreCase("yes");
             Component announcement = Component.text(
                 player.getName() + " chose " + (yes ? "Yes" : "No"),
@@ -429,14 +455,17 @@ public final class PveDialogue {
         return true;
     }
 
+    // Drop every open prompt during plugin shutdown
     public static void clearPendingChoices() {
         PENDING_CHOICES.clear();
     }
 
+    // Forget this player's prompt when their lobby goes away
     public static void clearPendingChoice(Player player) {
         PENDING_CHOICES.remove(player.getUniqueId());
     }
 
+    // Clickable choice with a little hover hint
     private static Component choiceButton(
         String label,
         NamedTextColor color,

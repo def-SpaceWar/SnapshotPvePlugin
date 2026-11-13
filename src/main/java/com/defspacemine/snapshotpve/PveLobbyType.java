@@ -43,17 +43,22 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
+// PVE-specific lobby worlds, game state, and player flows
 public class PveLobbyType extends LobbyType {
 
+    // Pause between each bit of post-death dialogue
     private static final long DIALOGUE_DELAY_TICKS = 90L;
+    // Active lobby instances, keyed by their main world name
     private static final Map<String, PveLobbyInstance> INSTANCES =
         new HashMap<>();
 
+    // Short prefix used by the shared lobby system
     @Override
     public String getPrefix() {
         return "pvelobby";
     }
 
+    // Build the PVE lobby wrapper for this world
     @Override
     public LobbyInstance make(World world) {
         SnapshotPvpPlugin.server.sendMessage(
@@ -62,29 +67,35 @@ public class PveLobbyType extends LobbyType {
         return new PveLobbyInstance(world);
     }
 
+    // The broad phases of a PVE lobby
     enum LobbyState {
         WAITING, // everyone needs to ready up
-        VOTE_CONFIG, // game settings
-        KIT_SELECTION, // choose kits
+        VOTE_CONFIG, // pick game settings
+        KIT_SELECTION, // choose a kit
         IN_GAME,
     }
 
+    // The three world slots a PVE level can use
     enum WorldType {
         OVERWORLD("overworld"),
         NETHER("nether"),
         END("end");
 
+        // Bukkit world-name suffix
         private final String name;
 
+        // Keep the readable suffix for world lookup
         private WorldType(String name) {
             this.name = name;
         }
 
+        // Expose the suffix to the lobby naming helpers
         String getName() {
             return name;
         }
     }
 
+    // A configured level and its source-world map bounds
     enum CurrentLevel {
         LEVEL1(
             WorldType.OVERWORLD,
@@ -94,13 +105,17 @@ public class PveLobbyType extends LobbyType {
             BlockVector3.at(-369, 65, -114)
         );
 
+        // Dimension containing this level's playable area
         public final WorldType world;
+        // Level number stored in the config
         public final int levelNumber;
-        // template only (no world); use getSpawnPoint(World) to get a usable copy
+        // Worldless template; getSpawnPoint(World) supplies the live world
         private final Location spawnPoint;
+        // Opposite corners of the level map
         public final BlockVector3 min;
         public final BlockVector3 max;
 
+        // Keep level metadata together in the enum entry
         private CurrentLevel(
             WorldType world,
             int levelNumber,
@@ -115,6 +130,7 @@ public class PveLobbyType extends LobbyType {
             this.max = max;
         }
 
+        // Find a configured level by its number
         public static CurrentLevel fromNumber(int levelNumber) {
             for (CurrentLevel level : values()) {
                 if (level.levelNumber == levelNumber) {
@@ -124,25 +140,24 @@ public class PveLobbyType extends LobbyType {
             return null;
         }
 
-        /** Name of the world that holds the original copy of this level. */
+        /** Source world holding the original level map */
         public String getSourceWorldName() {
             return "pvelvl" + levelNumber;
         }
 
-        /**
-         * Returns a fresh copy of the spawn point in the given world. The enum constant is
-         * shared by every lobby, so it must never be given a world directly.
-         */
+        /** Fresh destination-world spawn; shared enum template left untouched */
         public Location getSpawnPoint(World destWorld) {
             Location spawn = spawnPoint.clone();
             spawn.setWorld(destWorld);
             return spawn;
         }
 
-        /** Copies the level into the lobby's dimension world and teleports the players in. */
+        /** Map copy into this lobby, with players moved to the level spawn */
+        @SuppressWarnings("LoggerStringConcat")
         public boolean activateWorld(PveLobbyInstance lobby) {
             World srcWorld = Bukkit.getWorld(getSourceWorldName());
             World destWorld = lobby.getWorldType(world);
+            // Missing source or destination worlds means there's nowhere safe to copy
             if (srcWorld == null || destWorld == null) {
                 SnapshotPvePlugin.getInstance()
                     .getLogger()
@@ -159,6 +174,7 @@ public class PveLobbyType extends LobbyType {
                     );
                 return false;
             }
+            // Copy the level bounds, then gather the lobby players at its spawn
             GameMapUtil.cloneMap(srcWorld, min, max, destWorld, min);
             Location spawn = getSpawnPoint(destWorld);
             for (Player player : lobby.getPlayers()) {
@@ -167,9 +183,10 @@ public class PveLobbyType extends LobbyType {
             return true;
         }
 
-        /** Removes the level from the lobby's dimension world. */
+        /** This level's map cleared from the lobby world */
         public void removeWorld(PveLobbyInstance lobby) {
             World destWorld = lobby.getWorldType(world);
+            // Nothing to clean up if the destination isn't loaded
             if (destWorld == null) {
                 return;
             }
@@ -182,27 +199,39 @@ public class PveLobbyType extends LobbyType {
         implements Listener
     {
 
-        final World world; // main lobby world
-        // names of the lobby world and its overworld/nether/end worlds
+        // Main lobby world
+        final World world;
+        // Main lobby plus its overworld, nether, and end world names
         private final List<String> managedWorldNames;
+        // Respawn locations waiting for Bukkit's respawn event
         final Map<UUID, Location> pendingRespawns = new HashMap<>();
+        // Players who should return to adventure mode after respawning
         private final Set<UUID> pendingAdventureRespawns = new HashSet<>();
+        // No-survivors warning, shown once per blocked-movement stretch
         private final Set<UUID> playersWarnedNoActiveTargets = new HashSet<>();
 
-        CurrentLevel currentLevel; // the level this lobby is on (persisted in config)
-        boolean levelLoaded; // whether currentLevel's map is currently in the world
+        // Current level, saved against the main lobby world
+        CurrentLevel currentLevel;
+        // Whether its map is currently copied into the dimension world
+        boolean levelLoaded;
+        // Current lobby/game phase
         LobbyState lobbyState = LobbyState.WAITING;
+        // One post-death dialogue flow at a time
         boolean teamDialogueActive;
+        // Lobby cleanup already started
         boolean destroyed;
-        boolean gameOver = false; // if the game ended bc someone died, then this should be true
+        // Game ended after a death
+        boolean gameOver = false;
 
+        // Wire world tracking, config, events, and scoreboard hooks
         public PveLobbyInstance(World world) {
             this.world = world;
 
             List<String> names = new ArrayList<>();
             names.add(world.getName());
+            // Track all dimension-world names alongside the lobby world
             for (WorldType type : WorldType.values()) {
-                names.add(dimensionName(type));
+                names.add(world.getName() + "_" + type.getName());
             }
             this.managedWorldNames = List.copyOf(names);
             this.currentLevel = loadLevel();
@@ -216,15 +245,17 @@ public class PveLobbyType extends LobbyType {
             managedWorldNames.forEach(this::registerScoreboardHandler);
         }
 
+        // Predict this lobby's world name for a given dimension
         String dimensionName(WorldType type) {
             return world.getName() + "_" + type.getName();
         }
 
-        /** The lobby's world for the given dimension, or null if it isn't loaded. */
+        /** Loaded world for this dimension, or null */
         public World getWorldType(WorldType type) {
             return Bukkit.getWorld(dimensionName(type));
         }
 
+        // Hand scoreboard refreshes for this world back to the lobby
         private void registerScoreboardHandler(String worldName) {
             GlobalScoreboardManager.registerBoardHandler(
                 worldName,
@@ -232,6 +263,8 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Read saved selection, falling back cleanly when it's missing or stale
+        @SuppressWarnings("LoggerStringConcat")
         private CurrentLevel loadLevel() {
             String path = "pve-levels." + world.getName();
             var config = SnapshotPvePlugin.getInstance().getConfig();
@@ -239,11 +272,13 @@ public class PveLobbyType extends LobbyType {
                 CurrentLevel saved = CurrentLevel.fromNumber(
                     config.getInt(path)
                 );
+                // Use the saved level only if it still exists
                 if (saved != null) {
                     return saved;
                 }
             }
             if (config.contains(path)) {
+                // Keep a bad config value visible instead of silently ignoring it
                 SnapshotPvePlugin.getInstance()
                     .getLogger()
                     .warning(
@@ -255,10 +290,7 @@ public class PveLobbyType extends LobbyType {
             return CurrentLevel.LEVEL1;
         }
 
-        /**
-         * Switches to another level: removes the current level's map, then
-         * remembers the new level. Call startLevel() to actually place it.
-         */
+        /** Old map unloaded and next level saved; startLevel() places it */
         void switchLevel(CurrentLevel next) {
             unloadLevel();
             currentLevel = next;
@@ -269,7 +301,7 @@ public class PveLobbyType extends LobbyType {
             plugin.saveConfig();
         }
 
-        /** Copies the current level into the world and teleports the players in. */
+        /** Selected map copied in, unless already active */
         public boolean startLevel() {
             if (levelLoaded) {
                 return false;
@@ -278,7 +310,7 @@ public class PveLobbyType extends LobbyType {
             return levelLoaded;
         }
 
-        /** Removes the current level's map from the world, if it's there. */
+        /** Current level map removed, if loaded */
         void unloadLevel() {
             if (!levelLoaded) {
                 return;
@@ -287,12 +319,13 @@ public class PveLobbyType extends LobbyType {
             currentLevel.removeWorld(this);
         }
 
-        /** Where players return in the dimension world associated with the current level. */
+        /** Checkpoint location in the level's dimension world */
         private Location getCheckpoint() {
             World dimension = getWorldType(currentLevel.world);
             return dimension == null ? null : new Location(dimension, 0, 65, 0);
         }
 
+        // Fresh level spawn in its destination dimension
         private Location getLevelSpawn() {
             World dimension = getWorldType(currentLevel.world);
             return dimension == null
@@ -300,11 +333,12 @@ public class PveLobbyType extends LobbyType {
                 : currentLevel.getSpawnPoint(dimension);
         }
 
+        // Check a world name against this lobby's full world set
         private boolean managesWorld(World candidate) {
             return managedWorldNames.contains(candidate.getName());
         }
 
-        /** The active lobby that owns this world (lobby world or one of its dimensions), or null. */
+        /** Active lobby owning this world, or null */
         public static PveLobbyInstance forWorld(World candidate) {
             for (PveLobbyInstance instance : INSTANCES.values()) {
                 if (instance.managesWorld(candidate)) {
@@ -314,7 +348,7 @@ public class PveLobbyType extends LobbyType {
             return null;
         }
 
-        /** Sets PvP for every loaded dimension world in each active PVE lobby. */
+        /** PvP setting across every loaded dimension in active lobbies */
         public static int setPvpForAllLobbies(boolean enabled) {
             int updatedWorlds = 0;
             for (PveLobbyInstance instance : INSTANCES.values()) {
@@ -329,7 +363,7 @@ public class PveLobbyType extends LobbyType {
             return updatedWorlds;
         }
 
-        /** Called on plugin disable: take every lobby's level map out of its world. */
+        /** Active maps removed before shutdown; lobby references cleared */
         public static void clearInstances() {
             for (PveLobbyInstance instance : new ArrayList<>(
                 INSTANCES.values()
@@ -350,6 +384,7 @@ public class PveLobbyType extends LobbyType {
             INSTANCES.clear();
         }
 
+        // Add scoreboard refresh handling when one of our worlds loads
         @EventHandler
         public void onWorldLoad(WorldLoadEvent event) {
             String loadedName = event.getWorld().getName();
@@ -358,6 +393,7 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        // Refresh the sidebar when a relevant player arrives in a managed world
         @EventHandler
         public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
             Player player = event.getPlayer();
@@ -369,6 +405,7 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        // Keep PVE spectators from teleporting out of their lobby's world set
         @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
         public void onSpectatorTeleport(PlayerTeleportEvent event) {
             Player player = event.getPlayer();
@@ -394,11 +431,13 @@ public class PveLobbyType extends LobbyType {
             return world;
         }
 
+        // Lobby API view of the players currently in any managed world
         @Override
         public List<Player> getPlayers() {
             return getLobbyPlayers();
         }
 
+        // PVE tags or the shared PVP team names both mark participation
         private boolean isPveParticipant(Player player) {
             return (
                 PveDialogue.hasPveTag(player) ||
@@ -407,11 +446,13 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Drop only the PVE-specific role tags
         private void clearPveRoleTags(Player player) {
             player.removeScoreboardTag("playingPVE");
             player.removeScoreboardTag("spectatingPVE");
         }
 
+        // Restore a safe mode before leaving, then remove PVE tags on success
         private boolean teleportToLobby(Player player, Location destination) {
             boolean hasPveRoleTag = PveDialogue.hasPveTag(player);
             GameMode previousGameMode = player.getGameMode();
@@ -419,6 +460,7 @@ public class PveLobbyType extends LobbyType {
                 player.setGameMode(GameMode.ADVENTURE);
             }
             if (!player.teleport(destination)) {
+                // Put their old mode back if Bukkit rejected the teleport
                 if (hasPveRoleTag) {
                     player.setGameMode(previousGameMode);
                 }
@@ -428,11 +470,13 @@ public class PveLobbyType extends LobbyType {
             return true;
         }
 
+        // Reuse the host plugin's team lookup
         private boolean isOnTeam(Player player, String teamName) {
             var team = SnapshotPvpPlugin.getTeam(player);
             return team != null && team.getName().equals(teamName);
         }
 
+        // Gather everyone from the lobby and its loaded dimensions
         private List<Player> getLobbyPlayers() {
             List<Player> players = new ArrayList<>();
             for (String name : managedWorldNames) {
@@ -444,11 +488,13 @@ public class PveLobbyType extends LobbyType {
             return players;
         }
 
+        // Assemble this viewer's PVE sidebar from the current lobby state
         private void scoreboardHandler(Player viewer) {
             if (!canSeePveSidebar(viewer)) {
                 return;
             }
             if (gameOver) {
+                // Restore the shared board after the game is over
                 viewer.setScoreboard(
                     Bukkit.getScoreboardManager().getMainScoreboard()
                 );
@@ -456,6 +502,7 @@ public class PveLobbyType extends LobbyType {
             }
 
             List<Player> players = new ArrayList<>(getTeamPlayers());
+            // Count survivors separately from spectators
             long survivorCount = players
                 .stream()
                 .filter(player ->
@@ -476,11 +523,13 @@ public class PveLobbyType extends LobbyType {
                     .decorate(TextDecoration.BOLD)
             );
 
+            // Clear previous hidden entries before rebuilding the sidebar
             for (String entry : board.getEntries()) {
                 objective.getScore(entry).resetScore();
             }
 
             int position = 100;
+            // Status and optional lobby-rule rows
             GlobalScoreboardManager.setHiddenScore(objective, "", position--);
             GlobalScoreboardManager.setHiddenScore(
                 objective,
@@ -525,6 +574,7 @@ public class PveLobbyType extends LobbyType {
             }
 
             Boolean pvpEnabled = getLobbyPvpSetting();
+            // No loaded dimension means the setting can't be confirmed
             String friendlyFire = pvpEnabled == null
                 ? ChatColor.GRAY + "UNKNOWN"
                 : pvpEnabled
@@ -550,10 +600,12 @@ public class PveLobbyType extends LobbyType {
             players.sort((first, second) ->
                 first.getName().compareToIgnoreCase(second.getName())
             );
+            // Stable player order, role labels, and health totals
             for (Player player : players) {
                 boolean playing = player
                     .getScoreboardTags()
                     .contains("playingPVE");
+                // Keep role tags from contradicting each other
                 if (playing) {
                     player.removeScoreboardTag("spectatingPVE");
                 }
@@ -566,6 +618,7 @@ public class PveLobbyType extends LobbyType {
                     status + ChatColor.RESET + " " + player.getName();
 
                 double health = player.getHealth();
+                // Health color tracks how close they are to trouble
                 ChatColor healthColor =
                     health >= 15
                         ? ChatColor.GREEN
@@ -575,6 +628,7 @@ public class PveLobbyType extends LobbyType {
                 String rightSide =
                     healthColor.toString() + (int) Math.ceil(health) + "❤";
                 double absorption = player.getAbsorptionAmount();
+                // Show golden hearts separately from regular health
                 if (absorption > 0) {
                     rightSide +=
                         ChatColor.YELLOW.toString() +
@@ -593,6 +647,7 @@ public class PveLobbyType extends LobbyType {
             GlobalScoreboardManager.setupScoreboardHP(board, players);
         }
 
+        // Sidebar is for participants and people still in the lobby phase
         private boolean canSeePveSidebar(Player player) {
             return (
                 isPveParticipant(player) ||
@@ -600,12 +655,14 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Lobby-wide options are stored as tags on any lobby player
         private boolean hasLobbyTag(List<Player> lobbyPlayers, String tag) {
             return lobbyPlayers
                 .stream()
                 .anyMatch(player -> player.getScoreboardTags().contains(tag));
         }
 
+        // First loaded dimension is enough to report the lobby PvP setting
         private Boolean getLobbyPvpSetting() {
             for (WorldType type : WorldType.values()) {
                 World dimension = getWorldType(type);
@@ -616,6 +673,7 @@ public class PveLobbyType extends LobbyType {
             return null;
         }
 
+        // Turn the first matching difficulty tag into a sidebar label
         private String getLobbyDifficulty(List<Player> lobbyPlayers) {
             String[] names = { "DEBUG", "EASY", "NORMAL", "HARD", "ASCENDED" };
             for (int difficulty = 0; difficulty < names.length; difficulty++) {
@@ -635,6 +693,7 @@ public class PveLobbyType extends LobbyType {
             return null;
         }
 
+        // Color the spectator label from dark green through white
         private String gradientBoldText(String text) {
             Component gradient = Component.empty();
 
@@ -663,6 +722,7 @@ public class PveLobbyType extends LobbyType {
 
         @Override
         public void onTick() {
+            // Keep spectator tags and game modes in sync
             for (Player player : getLobbyPlayers()) {
                 if (
                     player.getScoreboardTags().contains("spectatingPVE") &&
@@ -671,12 +731,12 @@ public class PveLobbyType extends LobbyType {
                     player.setGameMode(GameMode.SPECTATOR);
                 }
             }
-            // if (lobbyState == LobbyState.IN_GAME)
+            // Future per-tick game-rule logic
             {
-                // run stuff
             }
         }
 
+        // Keep spectators inside solid blocks pinned to a live survivor
         @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
         public void onSpectatorMove(PlayerMoveEvent event) {
             Player player = event.getPlayer();
@@ -697,6 +757,7 @@ public class PveLobbyType extends LobbyType {
                 !from.getWorld().equals(to.getWorld()) ||
                 !intersectsSolidBlock(player, to)
             ) {
+                // Clear the warning cooldown once they're out of the blocked spot
                 playersWarnedNoActiveTargets.remove(player.getUniqueId());
                 return;
             }
@@ -717,6 +778,7 @@ public class PveLobbyType extends LobbyType {
                 )
                 .orElse(null);
             if (nearestPlayer == null) {
+                // No survivor to follow; undo the move and warn only once
                 event.setTo(from);
                 if (playersWarnedNoActiveTargets.add(player.getUniqueId())) {
                     player.sendMessage(
@@ -728,10 +790,12 @@ public class PveLobbyType extends LobbyType {
                 }
                 return;
             }
+            // Put them at the nearest active player
             playersWarnedNoActiveTargets.remove(player.getUniqueId());
             player.teleport(nearestPlayer.getLocation());
         }
 
+        // Check the player's full hitbox against nearby solid blocks
         private boolean intersectsSolidBlock(Player player, Location to) {
             double halfWidth = player.getWidth() / 2.0;
             BoundingBox playerBox = new BoundingBox(
@@ -749,10 +813,12 @@ public class PveLobbyType extends LobbyType {
             int maxY = (int) Math.floor(playerBox.getMaxY());
             int maxZ = (int) Math.floor(playerBox.getMaxZ());
             World destinationWorld = to.getWorld();
+            // No world means there are no blocks to test
             if (destinationWorld == null) {
                 return false;
             }
 
+            // Only count blocks that actually overlap the player's box
             for (int x = minX; x <= maxX; x++) {
                 for (int y = minY; y <= maxY; y++) {
                     for (int z = minZ; z <= maxZ; z++) {
@@ -769,6 +835,7 @@ public class PveLobbyType extends LobbyType {
             return false;
         }
 
+        // Squared distance keeps nearest-player sorting cheap
         private double distanceSquared(Location first, Location second) {
             double x = first.getX() - second.getX();
             double y = first.getY() - second.getY();
@@ -776,7 +843,9 @@ public class PveLobbyType extends LobbyType {
             return x * x + y * y + z * z;
         }
 
+        // Queue the dead player's return and start the group flow once
         @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+        @SuppressWarnings("LoggerStringConcat")
         public void onPlayerDeath(PlayerDeathEvent event) {
             Player deadPlayer = event.getPlayer();
             if (
@@ -790,6 +859,7 @@ public class PveLobbyType extends LobbyType {
 
             Location checkpoint = getCheckpoint();
             if (checkpoint == null) {
+                // Leave a clear log trail instead of queuing an invalid spawn
                 SnapshotPvePlugin.getInstance()
                     .getLogger()
                     .severe(
@@ -802,6 +872,7 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
             pendingRespawns.put(deadPlayer.getUniqueId(), checkpoint);
+            // A group prompt is already running; just keep the new respawn queued
             if (teamDialogueActive) {
                 return;
             }
@@ -814,6 +885,7 @@ public class PveLobbyType extends LobbyType {
                         return;
                     }
 
+                    // Clear tagged hunters from the checkpoint area
                     for (Entity entity : checkpoint.getWorld().getEntities()) {
                         var team = SnapshotPvpPlugin.getTeamE(entity);
                         if (team != null && team.getName().equals("hunter")) {
@@ -835,6 +907,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Back to default lobby rules once the group opts out
         private void resetLobbySettings() {
             for (WorldType type : WorldType.values()) {
                 World dimension = getWorldType(type);
@@ -849,6 +922,7 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        // Apply the stored destination during Bukkit's respawn flow
         @EventHandler(priority = EventPriority.HIGHEST)
         public void onPlayerRespawn(PlayerRespawnEvent event) {
             Player player = event.getPlayer();
@@ -857,12 +931,14 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
             event.setRespawnLocation(destination);
+            // Continuing players need adventure mode once they land
             boolean returnToLevel = pendingAdventureRespawns.remove(
                 player.getUniqueId()
             );
             Bukkit.getScheduler().runTaskLater(
                 SnapshotPvpPlugin.instance,
                 () -> {
+                    // Respawn callback may run after a disconnect or lobby change
                     if (!player.isOnline() || !isPveParticipant(player)) {
                         return;
                     }
@@ -880,6 +956,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Unhook the instance and clear its map, timers, and listeners
         @Override
         public void onDestroy() {
             destroyed = true;
@@ -902,6 +979,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Online PVE participants across the full lobby world set
         private List<Player> getTeamPlayers() {
             return getLobbyPlayers()
                 .stream()
@@ -910,6 +988,7 @@ public class PveLobbyType extends LobbyType {
                 .toList();
         }
 
+        // Start the group's post-death dialogue after a wipe or setback
         public void checkpointTellraw() {
             List<Player> players = getTeamPlayers();
             if (players.isEmpty()) {
@@ -924,6 +1003,7 @@ public class PveLobbyType extends LobbyType {
             );
 
             scheduleTeamDialogue(
+                // Branch into the short prompt or the longer explanation
                 () ->
                     offerChoices(
                         "Have you died before?",
@@ -939,10 +1019,12 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Delayed dialogue needs to recheck the lobby before it runs
         private void scheduleTeamDialogue(Runnable dialogue, long delay) {
             Bukkit.getScheduler().runTaskLater(
                 SnapshotPvePlugin.getInstance(),
                 () -> {
+                    // Stop queued lines if the lobby or its audience went away
                     if (destroyed) {
                         teamDialogueActive = false;
                         return;
@@ -960,6 +1042,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // Ask the group whether to reload the level
         private void askToContinue() {
             offerChoices(
                 "Would you like to continue?",
@@ -968,6 +1051,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // The longer story path for players new to the death flow
         private void startExplanation() {
             List<Component> lines = List.of(
                 Component.text(
@@ -1010,12 +1094,14 @@ public class PveLobbyType extends LobbyType {
             sendExplanationLine(lines, 0);
         }
 
+        // Send one story line, then queue the next line or the follow-up prompt
         private void sendExplanationLine(List<Component> lines, int index) {
             List<Player> players = getTeamPlayers();
             if (destroyed || !teamDialogueActive || players.isEmpty()) {
                 return;
             }
             if (index >= lines.size()) {
+                // Story's done; ask whether they want another shot
                 scheduleTeamDialogue(
                     () ->
                         offerChoices(
@@ -1028,6 +1114,7 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
 
+            // One line per delay, so the chat stays readable
             sendSpeakerLine(players, lines.get(index));
             scheduleTeamDialogue(
                 () -> sendExplanationLine(lines, index + 1),
@@ -1035,6 +1122,7 @@ public class PveLobbyType extends LobbyType {
             );
         }
 
+        // One answer token shared by everybody in the current group
         private void offerChoices(
             String prompt,
             BiConsumer<Player, Boolean> callback
@@ -1052,6 +1140,7 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        // Shared redacted speaker prefix for story lines
         private Component speakerLine(Component message) {
             return Component.empty()
                 .append(Component.text("<", NamedTextColor.RED))
@@ -1064,6 +1153,7 @@ public class PveLobbyType extends LobbyType {
                 .append(message);
         }
 
+        // Send the same speaker line and sound to each recipient
         private void sendSpeakerLine(
             List<Player> recipients,
             Component message
@@ -1072,6 +1162,7 @@ public class PveLobbyType extends LobbyType {
             for (Player recipient : recipients) {
                 recipient.sendMessage(line);
             }
+            // Only tagged PVE players hear the speaker sound
             for (Player player : recipients) {
                 if (PveDialogue.hasPveTag(player)) {
                     player.playSound(
@@ -1084,6 +1175,7 @@ public class PveLobbyType extends LobbyType {
             }
         }
 
+        // Reload the level or send everyone back to the main lobby
         private void resolveContinueChoice(boolean wantsToContinue) {
             List<Player> players = getTeamPlayers();
             if (players.isEmpty()) {
@@ -1095,7 +1187,7 @@ public class PveLobbyType extends LobbyType {
                 Component.text("I understand.", NamedTextColor.RED)
             );
 
-            // Continuing reloads the level; declining returns players to the main lobby.
+            // Continuing reloads the map; declining heads back to the main lobby
             Location spawn = wantsToContinue
                 ? getLevelSpawn()
                 : world.getSpawnLocation();
@@ -1112,6 +1204,7 @@ public class PveLobbyType extends LobbyType {
                 return;
             }
             if (spawn == null) {
+                // Don't teleport into a missing dimension
                 for (Player player : players) {
                     player.sendMessage(
                         Component.text(
@@ -1129,6 +1222,7 @@ public class PveLobbyType extends LobbyType {
             if (!wantsToContinue) {
                 resetLobbySettings();
             }
+            // Dead players need a queued respawn; living players can move now
             for (Player player : players) {
                 if (player.isDead()) {
                     pendingRespawns.put(player.getUniqueId(), spawn);
