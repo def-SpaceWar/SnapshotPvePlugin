@@ -1,14 +1,14 @@
 package com.defspacemine.snapshotpve;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
-
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -20,15 +20,10 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.inventory.EquipmentSlot;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.plugin.java.JavaPlugin;
 
 // Weighted dialogue for any summoned mob
 public final class PvePrologue implements Listener {
@@ -49,22 +44,6 @@ public final class PvePrologue implements Listener {
     // Dialogue stays tied to the summoned entity UUID
     private static final Map<UUID, EntityDialogue> ENTITY_DIALOGUE =
         new HashMap<>();
-
-    // Filled by the spawn listener while the summon command is running
-    private static EntityType capturingType = null;
-    private static UUID capturedId = null;
-
-    // Catch the entity at the moment vanilla spawns it (synchronous, main thread)
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onEntitySpawn(EntitySpawnEvent event) {
-        if (
-            capturingType != null &&
-            capturedId == null &&
-            event.getEntityType() == capturingType
-        ) {
-            capturedId = event.getEntity().getUniqueId();
-        }
-    }
 
     // Validate the request, let vanilla handle SNBT, then attach the dialogue
     public boolean summon(CommandSender sender, String[] args) {
@@ -129,10 +108,9 @@ public final class PvePrologue implements Listener {
             return true;
         }
 
-        Set<UUID> existingEntities = new HashSet<>();
-        for (Entity existing : location.getWorld().getEntities()) {
-            existingEntities.add(existing.getUniqueId());
-        }
+        // Unique marker so only this exact mob is picked up afterwards
+        final String marker = "pveprologue_" + UUID.randomUUID();
+        nbt = addScoreboardTag(nbt, marker);
 
         String summonCommand =
             "minecraft:execute in " +
@@ -147,69 +125,56 @@ public final class PvePrologue implements Listener {
             formatCoordinate(location.getZ()) +
             (nbt.isEmpty() ? "" : " " + nbt);
 
-        capturingType = type;
-        capturedId = null;
-        UUID entityId;
-        try {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), summonCommand);
-            entityId = capturedId;
-        } finally {
-            capturingType = null;
-            capturedId = null;
-        }
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), summonCommand);
 
-        // Fallback: nearest brand-new entity of this type, no strict distance limit
-        if (entityId == null) {
-            entityId = location
-                .getWorld()
-                .getEntities()
-                .stream()
-                .filter(candidate ->
-                    !existingEntities.contains(candidate.getUniqueId()) &&
-                    candidate.getType() == type
-                )
-                .min((first, second) ->
-                    Double.compare(
-                        first.getLocation().distanceSquared(location),
-                        second.getLocation().distanceSquared(location)
+        // Look the entity up on the next tick, once the world has registered it
+        final List<DialogueLine> finalLines = List.copyOf(lines);
+        Bukkit.getScheduler().runTask(
+            JavaPlugin.getProvidingPlugin(PvePrologue.class),
+            () -> {
+                UUID entityId = null;
+                for (Entity candidate : location.getWorld().getEntities()) {
+                    if (candidate.getScoreboardTags().contains(marker)) {
+                        entityId = candidate.getUniqueId();
+                        candidate.removeScoreboardTag(marker);
+                        break;
+                    }
+                }
+                if (entityId == null) {
+                    sender.sendMessage(
+                        Component.text(
+                            "The summon command did not spawn the requested mob. Check the mob type and SNBT data, and review the server log for command errors.",
+                            NamedTextColor.RED
+                        )
+                    );
+                    return;
+                }
+
+                double totalWeight = finalLines
+                    .stream()
+                    .mapToDouble(DialogueLine::weight)
+                    .sum();
+                ENTITY_DIALOGUE.put(
+                    entityId,
+                    new EntityDialogue(finalLines, totalWeight)
+                );
+                sender.sendMessage(
+                    Component.text(
+                        "Summoned " +
+                            type.getKey() +
+                            " at " +
+                            formatCoordinate(location.getX()) +
+                            ", " +
+                            formatCoordinate(location.getY()) +
+                            ", " +
+                            formatCoordinate(location.getZ()) +
+                            " with " +
+                            finalLines.size() +
+                            " weighted dialogue line(s).",
+                        NamedTextColor.GREEN
                     )
-                )
-                .map(Entity::getUniqueId)
-                .orElse(null);
-        }
-        if (entityId == null) {
-            sender.sendMessage(
-                Component.text(
-                    "The summon command did not spawn the requested mob. Check the mob type and SNBT data, and review the server log for command errors.",
-                    NamedTextColor.RED
-                )
-            );
-            return true;
-        }
-
-        double totalWeight = lines
-            .stream()
-            .mapToDouble(DialogueLine::weight)
-            .sum();
-        ENTITY_DIALOGUE.put(
-            entityId,
-            new EntityDialogue(List.copyOf(lines), totalWeight)
-        );
-        sender.sendMessage(
-            Component.text(
-                "Summoned " +
-                    type.getKey() +
-                    " at " +
-                    formatCoordinate(location.getX()) +
-                    ", " +
-                    formatCoordinate(location.getY()) +
-                    ", " +
-                    formatCoordinate(location.getZ()) +
-                    " with " +
-                    lines.size() +
-                    " weighted dialogue line(s).",
-                NamedTextColor.GREEN
-            )
+                );
+            }
         );
         return true;
     }
@@ -227,9 +192,7 @@ public final class PvePrologue implements Listener {
     }
 
     private boolean sendEntityDialogue(Player player, Entity entity) {
-        EntityDialogue dialogue = ENTITY_DIALOGUE.get(
-            entity.getUniqueId()
-        );
+        EntityDialogue dialogue = ENTITY_DIALOGUE.get(entity.getUniqueId());
         if (dialogue == null) {
             return false;
         }
@@ -238,9 +201,9 @@ public final class PvePrologue implements Listener {
             dialogue.totalWeight()
         );
         double cumulativeWeight = 0;
-        DialogueLine selectedLine = dialogue.lines().get(
-            dialogue.lines().size() - 1
-        );
+        DialogueLine selectedLine = dialogue
+            .lines()
+            .get(dialogue.lines().size() - 1);
         for (DialogueLine candidate : dialogue.lines()) {
             cumulativeWeight += candidate.weight();
             if (roll < cumulativeWeight) {
@@ -285,7 +248,9 @@ public final class PvePrologue implements Listener {
 
     private static ParsedTail parseTail(String tail) {
         if (tail.isEmpty()) {
-            throw new IllegalArgumentException("Provide at least one dialogue line.");
+            throw new IllegalArgumentException(
+                "Provide at least one dialogue line."
+            );
         }
         if (tail.startsWith("{")) {
             int nbtEnd = findCompoundEnd(tail);
@@ -312,6 +277,124 @@ public final class PvePrologue implements Listener {
             return new ParsedTail("", dialogueText);
         }
         return new ParsedTail("", tail);
+    }
+
+    // Insert a scoreboard tag into the SNBT, merging with any existing Tags list
+    private static String addScoreboardTag(String nbt, String tag) {
+        String quoted = "\"" + tag + "\"";
+        if (nbt.isEmpty()) {
+            return "{Tags:[" + quoted + "]}";
+        }
+        int listStart = findTopLevelTagsList(nbt);
+        if (listStart >= 0) {
+            int next = listStart + 1;
+            while (
+                next < nbt.length() && Character.isWhitespace(nbt.charAt(next))
+            ) {
+                next++;
+            }
+            boolean emptyList = next < nbt.length() && nbt.charAt(next) == ']';
+            return (
+                nbt.substring(0, listStart + 1) +
+                quoted +
+                (emptyList ? "" : ",") +
+                nbt.substring(listStart + 1)
+            );
+        }
+        String rest = nbt.substring(1);
+        boolean emptyCompound = rest.stripLeading().startsWith("}");
+        return "{Tags:[" + quoted + "]" + (emptyCompound ? "" : ",") + rest;
+    }
+
+    // Index of the '[' of the top-level Tags list, or -1 if there is none
+    private static int findTopLevelTagsList(String nbt) {
+        int length = nbt.length();
+        int i = 1;
+        while (i < length) {
+            while (
+                i < length &&
+                (Character.isWhitespace(nbt.charAt(i)) || nbt.charAt(i) == ',')
+            ) {
+                i++;
+            }
+            if (i >= length || nbt.charAt(i) == '}') {
+                return -1;
+            }
+            StringBuilder key = new StringBuilder();
+            char first = nbt.charAt(i);
+            if (first == '"' || first == '\'') {
+                i++;
+                while (i < length && nbt.charAt(i) != first) {
+                    if (nbt.charAt(i) == '\\' && i + 1 < length) {
+                        i++;
+                    }
+                    key.append(nbt.charAt(i));
+                    i++;
+                }
+                i++;
+            } else {
+                while (
+                    i < length &&
+                    nbt.charAt(i) != ':' &&
+                    !Character.isWhitespace(nbt.charAt(i))
+                ) {
+                    key.append(nbt.charAt(i));
+                    i++;
+                }
+            }
+            while (i < length && Character.isWhitespace(nbt.charAt(i))) {
+                i++;
+            }
+            if (i >= length || nbt.charAt(i) != ':') {
+                return -1;
+            }
+            i++;
+            while (i < length && Character.isWhitespace(nbt.charAt(i))) {
+                i++;
+            }
+            if (
+                i < length &&
+                key.toString().equals("Tags") &&
+                nbt.charAt(i) == '['
+            ) {
+                return i;
+            }
+            i = skipValue(nbt, i);
+        }
+        return -1;
+    }
+
+    // Advance to the ',' or closing '}' that ends the value starting at index
+    private static int skipValue(String text, int index) {
+        int depth = 0;
+        char quote = 0;
+        boolean escaped = false;
+        for (int i = index; i < text.length(); i++) {
+            char current = text.charAt(i);
+            if (quote != 0) {
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (current == quote) {
+                    quote = 0;
+                }
+                continue;
+            }
+            if (current == '"' || current == '\'') {
+                quote = current;
+            } else if (current == '{' || current == '[' || current == '(') {
+                depth++;
+            } else if (current == '}' || current == ']' || current == ')') {
+                if (depth == 0) {
+                    return i;
+                }
+                depth--;
+            } else if (current == ',' && depth == 0) {
+                return i;
+            }
+        }
+        return text.length();
     }
 
     private static int findCompoundEnd(String text) {
@@ -362,8 +445,8 @@ public final class PvePrologue implements Listener {
             NamedTextColor color = colorName.equalsIgnoreCase("DEFAULT")
                 ? NamedTextColor.WHITE
                 : NamedTextColor.NAMES.value(
-                    colorName.toLowerCase(Locale.ROOT)
-                );
+                      colorName.toLowerCase(Locale.ROOT)
+                  );
             if (color == null) {
                 throw new IllegalArgumentException(
                     "Use a named color such as WHITE, GOLD, or RED, or DEFAULT for WHITE."
@@ -419,10 +502,7 @@ public final class PvePrologue implements Listener {
             return player.getLocation();
         }
         if (sender instanceof BlockCommandSender blockSender) {
-            return blockSender
-                .getBlock()
-                .getLocation()
-                .add(0.5, 0.5, 0.5);
+            return blockSender.getBlock().getLocation().add(0.5, 0.5, 0.5);
         }
         if (sender instanceof Entity entity) {
             return entity.getLocation();
@@ -479,7 +559,10 @@ public final class PvePrologue implements Listener {
             value >= Long.MIN_VALUE &&
             value < Long.MAX_VALUE
             ? Long.toString((long) value)
-            : new java.math.BigDecimal(value).setScale(6, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+            : new java.math.BigDecimal(value)
+                  .setScale(6, java.math.RoundingMode.HALF_UP)
+                  .stripTrailingZeros()
+                  .toPlainString();
     }
 
     // One usage string for all bad argument shapes

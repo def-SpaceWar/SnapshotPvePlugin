@@ -1,5 +1,10 @@
 package com.defspacemine.snapshotpve;
 
+import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
+import com.defspacemine.snapshotpvp.lobby.LobbyType;
+import com.defspacemine.snapshotpvp.map.GameMapUtil;
+import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
+import com.sk89q.worldedit.math.BlockVector3;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,7 +13,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
@@ -31,17 +39,6 @@ import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.util.BoundingBox;
-
-import com.defspacemine.snapshotpvp.SnapshotPvpPlugin;
-import com.defspacemine.snapshotpvp.lobby.LobbyType;
-import com.defspacemine.snapshotpvp.map.GameMapUtil;
-import com.defspacemine.snapshotpvp.scoreboard.GlobalScoreboardManager;
-import com.sk89q.worldedit.math.BlockVector3;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 // PVE-specific lobby worlds, game state, and player flows
 public class PveLobbyType extends LobbyType {
@@ -546,9 +543,7 @@ public class PveLobbyType extends LobbyType {
             GlobalScoreboardManager.setHiddenScore(objective, " ", position--);
 
             List<Player> lobbyPlayers = getLobbyPlayers();
-            if (
-                hasLobbyTag(lobbyPlayers, "randomPveEffects")
-            ) {
+            if (hasLobbyTag(lobbyPlayers, "randomPveEffects")) {
                 GlobalScoreboardManager.setHiddenScore(
                     objective,
                     ChatColor.GRAY + "RANDOMIZED EFFECTS",
@@ -575,11 +570,12 @@ public class PveLobbyType extends LobbyType {
 
             Boolean pvpEnabled = getLobbyPvpSetting();
             // No loaded dimension means the setting can't be confirmed
-            String friendlyFire = pvpEnabled == null
-                ? ChatColor.GRAY + "UNKNOWN"
-                : pvpEnabled
-                  ? ChatColor.GREEN + "ENABLED"
-                  : ChatColor.RED + "DISABLED";
+            String friendlyFire =
+                pvpEnabled == null
+                    ? ChatColor.GRAY + "UNKNOWN"
+                    : pvpEnabled
+                      ? ChatColor.GREEN + "ENABLED"
+                      : ChatColor.RED + "DISABLED";
             GlobalScoreboardManager.setHiddenScore(
                 objective,
                 ChatColor.GRAY + "FRIENDLY FIRE",
@@ -679,14 +675,16 @@ public class PveLobbyType extends LobbyType {
             for (int difficulty = 0; difficulty < names.length; difficulty++) {
                 String tag = "difficulty" + difficulty;
                 if (hasLobbyTag(lobbyPlayers, tag)) {
-                    ChatColor color = difficulty == 0
-                        ? ChatColor.GREEN
-                        : difficulty == 4
-                          ? ChatColor.RED
-                          : ChatColor.WHITE;
-                    String style = difficulty == 0 || difficulty == 4
-                        ? ChatColor.BOLD.toString()
-                        : "";
+                    ChatColor color =
+                        difficulty == 0
+                            ? ChatColor.GREEN
+                            : difficulty == 4
+                              ? ChatColor.RED
+                              : ChatColor.WHITE;
+                    String style =
+                        difficulty == 0 || difficulty == 4
+                            ? ChatColor.BOLD.toString()
+                            : "";
                     return color + style + names[difficulty];
                 }
             }
@@ -732,8 +730,7 @@ public class PveLobbyType extends LobbyType {
                 }
             }
             // Future per-tick game-rule logic
-            {
-            }
+            {}
         }
 
         // Keep spectators inside solid blocks pinned to a live survivor

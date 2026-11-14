@@ -9,18 +9,16 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-
-import org.bukkit.Bukkit;
-import org.bukkit.Sound;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
-
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Bukkit;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 
 // Shared chat and clickable-choice bits for PVE
 public final class PveDialogue {
@@ -287,9 +285,10 @@ public final class PveDialogue {
                 // Recheck the audience when the delay ends
                 List<? extends Player> recipients = players
                     .stream()
-                    .filter(player ->
-                        player.isOnline() &&
-                        (!requirePveTag || hasPveTag(player))
+                    .filter(
+                        player ->
+                            player.isOnline() &&
+                            (!requirePveTag || hasPveTag(player))
                     )
                     .toList();
                 if (choiceScope == ChoiceScope.PLAYER) {

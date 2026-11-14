@@ -1,12 +1,15 @@
 package com.defspacemine.snapshotpve;
 
+import com.defspacemine.snapshotpvp.lobby.LobbyManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -17,12 +20,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import com.defspacemine.snapshotpvp.lobby.LobbyManager;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 
 // Main lifecycle and command wiring for the PVE plugin
 public class SnapshotPvePlugin extends JavaPlugin {
@@ -301,7 +298,9 @@ public class SnapshotPvePlugin extends JavaPlugin {
         World senderWorld = null;
         // Command blocks and minecarts carry a world; console does not
         switch (sender) {
-            case BlockCommandSender block -> senderWorld = block.getBlock().getWorld();
+            case BlockCommandSender block -> senderWorld = block
+                .getBlock()
+                .getWorld();
             case Entity entity -> senderWorld = entity.getWorld();
             default -> {
             }
@@ -469,9 +468,10 @@ public class SnapshotPvePlugin extends JavaPlugin {
             return true;
         }
         // Default recipients follow the sender's PVE lobby
-        Collection<? extends Player> targets = targetSelector == null
-            ? getDialogueTargets(sender)
-            : selectPlayerTargets(sender, targetSelector);
+        Collection<? extends Player> targets =
+            targetSelector == null
+                ? getDialogueTargets(sender)
+                : selectPlayerTargets(sender, targetSelector);
         if (targets == null) {
             return true;
         }
@@ -607,8 +607,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
         String noCommand = joinSection(args, noIndex, messageIndex, "no=");
         int messageEnd = args.length;
         String targetSelector = null;
-        PveDialogue.ChoiceScope choiceScope =
-            PveDialogue.ChoiceScope.EVERYONE;
+        PveDialogue.ChoiceScope choiceScope = PveDialogue.ChoiceScope.EVERYONE;
         boolean foundTarget = false;
         boolean foundScope = false;
         // Options live at the end so message text stays unrestricted
@@ -639,9 +638,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
                 } else if (scope.equalsIgnoreCase("EVERYONE")) {
                     choiceScope = PveDialogue.ChoiceScope.EVERYONE;
                 } else {
-                    sender.sendMessage(
-                        "Use scope=PLAYER or scope=EVERYONE."
-                    );
+                    sender.sendMessage("Use scope=PLAYER or scope=EVERYONE.");
                     return true;
                 }
                 foundScope = true;
@@ -716,12 +713,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
     }
 
     // Find a marker inside a bounded section
-    private int findMarker(
-        String[] args,
-        int start,
-        int end,
-        String marker
-    ) {
+    private int findMarker(String[] args, int start, int end, String marker) {
         // Case-insensitive marker match, since command keywords aren't case-sensitive
         for (int i = start; i < end; i++) {
             if (args[i].regionMatches(true, 0, marker, 0, marker.length())) {
