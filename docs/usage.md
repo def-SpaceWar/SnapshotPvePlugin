@@ -5,18 +5,63 @@
 Summon any spawnable entity type in the executing player's, entity's, or command block's world.
 Use absolute coordinates or `~`/`~offset` relative to the sender. Provide SNBT as a compound, or
 use `-` when no custom NBT is needed. Each dialogue entry uses
-`COLOR%STYLE%weight%text`, with commas between entries. Use `DEFAULT` for WHITE and `NONE` for
-plain text:
+`COLOR%STYLE%weight%text`, with commas between entries. Add an optional `|sound=<sound|NONE>`
+suffix to play a sound for that line; append `%<volume>%<pitch>` to set its sound level. Use
+`DEFAULT` for WHITE and `NONE` for plain text:
 
 ```text
 /pvesummon <mob> <x> <y> <z> [<snbt>|-] <color>%<style>%<weight>%<text>,...
-/pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,CustomName:'{"text":"Guide"}'} GOLD%BOLD%70%Welcome traveler.,RED%ITALIC%30%The road is dangerous.
+/pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,CustomName:'{"text":"Guide"}'} GOLD%BOLD%70%Welcome traveler.|sound=ENTITY_VILLAGER_YES%0.8%1.2,RED%ITALIC%30%The road is dangerous.|sound=ENTITY_VILLAGER_NO
 /pvesummon minecraft:zombie ~2 ~ ~ {IsBaby:1b} DEFAULT%NONE%80%Brains!,WHITE%BOLD%20%Run!
 ```
 
-One line is picked on each right-click, using the percentages as weights; they don't need to add up
-to 100. Dialogue text can't contain commas because commas separate entries. Dialogue is held in
-memory and removed when the entity dies or the plugin shuts down.
+One weighted line is picked on each right-click; weights don't need to add up to 100. For a fixed
+sequence, use `sequence=PLAYER` to message only the player who right-clicks, or `sequence=PLAYINGPVE`
+to message every online player with the `playingPVE` tag. The `|` character is reserved for line
+settings and cannot be included in dialogue text:
+
+```text
+/pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER GOLD%BOLD%0%Welcome traveler.,WHITE%NONE%40%Follow the path ahead.
+/pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER GOLD%BOLD%0%The gate clicks open.|sound=BLOCK_IRON_DOOR_OPEN%0.7%1.2,WHITE%NONE%30%Step inside.|sound=ENTITY_VILLAGER_YES
+/pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYINGPVE GOLD%BOLD%0%The gate is open.|append=WHITE%NONE%Move quickly.|check=Will you enter?|yes=tp %player% 0 64 0|no=-
+/pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER DARK_GREEN%NONE%0%The road forks.|check=Choose a route.|option=Forest%GREEN%BOLD%tp %player% 24 72 24|option=River%AQUA%ITALIC%tp %player% 36 64 12|option=Turn back%RED%NONE%-
+/pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,Invulnerable:1b,CustomName:'{"text":"Gatekeeper"}'} sequence=PLAYINGPVE GOLD%BOLD%100%The gate shudders open.|append=YELLOW%ITALIC%Runes blaze across the stone.|check=Will your group enter?|yes=tp @a[tag=playingPVE] 120 64 -30|no=tp @a[tag=playingPVE] 96 64 8,GRAY%NONE%40%The gatekeeper watches the decision.,AQUA%NONE%60%The runes fade away.
+/pvesummon minecraft:villager ~1 ~ ~ {NoAI:1b,CustomName:'{"text":"Cartographer"}'} sequence=PLAYER DARK_AQUA%BOLD%0%The map is incomplete.|append=GRAY%ITALIC%The ink is smudged.|check=Follow the marked trail?|yes=tp %player% 24 72 24|no=tp %player% 0 64 0,WHITE%NONE%20%The map folds shut.,GOLD%NONE%50%The cartographer waits for your next move.
+```
+
+Each sequential line uses `COLOR%STYLE%delayTicks%text`. Its delay is the number of ticks before
+that line appears (including the first line after the right-click). Optional `|sound=<sound|NONE>`
+plays a sound with default volume and pitch `1`; use `|sound=<sound>%<volume>%<pitch>` to customize
+them. Sound names can be Bukkit names such as `ENTITY_VILLAGER_YES` or namespaced keys. Optional
+`|append=COLOR%STYLE%text` adds separately styled text to the same message. Optional
+`|check=prompt|yes=command|no=command` adds clickable Yes/No choices and pauses the sequence until
+someone chooses. For custom choices,
+replace `yes=` and `no=` with one or more `|option=<label>%<color>%<style>%<command>` entries.
+The label, named color, and style (or `NONE`) control each button; use `-` for no action. A command
+runs as the player who chose, and `%player%` is replaced with their name. For `PLAYINGPVE`, the
+first player to choose decides for everyone, and the group is told who chose what. Commas separate
+dialogue lines and `|` separates options, so those characters cannot be included in the text or
+commands.
+
+While a sequence is active, its NPC cannot be clicked again. A player already receiving a sequence
+cannot start or receive dialogue from another dialogue NPC until the sequence finishes. Dialogue is
+held in memory and removed when the entity dies or the plugin shuts down.
+
+### Custom checkpoint choices
+
+`/pvecheckpoint` shows Yes and No by default. Keep the legacy `yes=` and `no=` callbacks to set
+their commands, or define one or more custom choices with repeated `option=` entries. Each option
+sets its own button label, named color, style, and command. At least one custom option is required
+when using this format; a command of `-` leaves that choice without an action.
+
+```text
+/pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Continue to the checkpoint scope=PLAYER
+/pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 option=Enter%GREEN%BOLD%tp @a[tag=playingPVE] 120 64 -30 option=Gather%YELLOW%ITALIC%- option=Leave%RED%STRIKETHROUGH%tp @a[tag=playingPVE] 0 64 0 message=Choose your path target=@a[tag=playingPVE] scope=EVERYONE
+```
+
+In `scope=EVERYONE`, the first recipient to click decides for the group; each command runs as
+that player, and everyone is told which label they chose. With no `option=`, `yes=`, or `no=`
+entries, the default Yes/No buttons have no callbacks.
 
 For prologue dialogue, command blocks can call the existing `/pveprologuedialogue` command for each
 line in a sequence. Chain command blocks or use delays to control the order; for example:

@@ -6,13 +6,15 @@ author: AUTHOR
 description: DESCRIPTION
 commands:
   pvecheckpoint:
-    description: Broadcast a styled Yes/No prompt to tagged PVE players by default, or to a selector; choose shared or per-player responses.
+    description: Broadcast a styled prompt with default Yes/No choices or customizable options.
     usage: >-
       /pvecheckpoint <delayTicks> <color> <style|NONE> <sound|NONE> <volume> <pitch>
-      yes=<command...> no=<command...> message=<dialogue...> [target=<selector>] [scope=PLAYER|EVERYONE]
+      [option=<label>%<color>%<style|NONE>%<command...> ...]
+      message=<dialogue...> [target=<selector>] [scope=PLAYER|EVERYONE]
+      Or use legacy yes=<command...> no=<command...> before message= for the default Yes/No options.
       Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Continue to the checkpoint scope=PLAYER
-      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 yes=tp %player% 0 64 0 no=- message=Choose for everyone target=@a[tag=playingPVE] scope=EVERYONE
-      Put the selector in target= at the end so it is distinct from message text, for example target=@p or target=@a[tag=joiningPVE]. By default, only players tagged playingPVE or spectatingPVE receive it. Selectors include @a, @p, @r, and @e, with tag filters. scope=PLAYER lets each recipient choose independently; default scope=EVERYONE lets the first recipient choose once for all.
+      Example: /pvecheckpoint 40 GOLD BOLD UI_BUTTON_CLICK 0.8 1.2 option=Enter%GREEN%BOLD%tp %player% 120 64 -30 option=Wait%YELLOW%ITALIC%- option=Leave%RED%STRIKETHROUGH%tp %player% 0 64 0 message=Choose your path target=@p scope=PLAYER
+      Repeat option= at least once to define custom choices. Each option has its own label, named color, style, and command; use - for no action. Without options or legacy yes=/no= callbacks, Yes and No default to no action. By default, only players tagged playingPVE or spectatingPVE receive it. target= accepts selectors such as @a[tag=joiningPVE]; scope=PLAYER lets each recipient choose independently, while EVERYONE lets the first recipient choose for all.
   pveprologuedialogue:
     description: Send colored PVE prologue dialogue to tagged PVE players by default, or a selector; supports appended text and sound settings.
     usage: >-
@@ -25,8 +27,12 @@ commands:
     description: Send colored PVE dialogue with the defSpaceMine prefix and configurable sound volume and pitch.
     usage: /pveDefDialogue <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>
   pvesummon:
-    description: Summon a mob with SNBT and weighted dialogue for player interactions.
-    usage: /pvesummon <mob> <x> <y> <z> [<snbt>|-] <color>%<style>%<weight>%<text>,...
+    description: Summon a mob with weighted or sequential dialogue for player interactions.
+    usage: >-
+      /pvesummon <mob> <x> <y> <z> [<snbt>|-]
+      [<color>%<style>%<weight>%<text>[|sound=<sound|NONE>[%<volume>%<pitch>]],...|sequence=PLAYER <sequence-lines>|sequence=PLAYINGPVE <sequence-lines>]
+      Sequence line: <color>%<style>%<delayTicks>%<text>[|sound=<sound|NONE>[%<volume>%<pitch>]][|append=<color>%<style>%<text>][|check=<prompt> ...]
+      A check accepts legacy |yes=<command>|no=<command> callbacks, or one or more |option=<label>%<color>%<style|NONE>%<command...> entries.
     permission: snapshotpve.summon
   setpvelevel:
     description: Set and persist the level tracked for the current PVE lobby instance.

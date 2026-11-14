@@ -29,6 +29,25 @@ public final class PveDialogue {
         EVERYONE,
     }
 
+    public record ChoiceOption(
+        String label,
+        TextColor color,
+        TextDecoration style,
+        String command
+    ) {
+
+        public ChoiceOption {
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(color, "color");
+            Objects.requireNonNull(command, "command");
+            if (label.isBlank() || command.isBlank()) {
+                throw new IllegalArgumentException(
+                    "Choice labels and commands must not be blank."
+                );
+            }
+        }
+    }
+
     // One active prompt per player UUID
     private static final Map<UUID, PendingChoice> PENDING_CHOICES =
         new HashMap<>();
@@ -36,9 +55,10 @@ public final class PveDialogue {
     // Click token, callback, one-shot flag, and who hears the result
     private record PendingChoice(
         String token,
-        BiConsumer<Player, Boolean> callback,
+        BiConsumer<Player, ChoiceOption> callback,
         AtomicBoolean consumed,
-        List<UUID> audience
+        List<UUID> audience,
+        List<ChoiceOption> options
     ) {}
 
     private PveDialogue() {}
@@ -249,8 +269,12 @@ public final class PveDialogue {
     ) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(callback, "callback");
-        return choicePrompt(prompt, List.of(player), (clicker, choice) ->
-            callback.accept(choice)
+        return choicePromptWithOptions(
+            prompt,
+            List.of(player),
+            defaultYesNoOptions("-", "-"),
+            (clicker, choice) ->
+                callback.accept(choice.label().equalsIgnoreCase("yes"))
         );
     }
 
@@ -269,15 +293,48 @@ public final class PveDialogue {
         ChoiceScope choiceScope,
         boolean requirePveTag
     ) {
+        return sendCheckpointPromptWithOptions(
+            players,
+            color,
+            style,
+            dialogue,
+            sound,
+            volume,
+            pitch,
+            delayTicks,
+            defaultYesNoOptions(yesCommand, noCommand),
+            choiceScope,
+            requirePveTag
+        );
+    }
+
+    public static BukkitTask sendCheckpointPromptWithOptions(
+        Collection<? extends Player> players,
+        TextColor color,
+        TextDecoration style,
+        String dialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks,
+        List<ChoiceOption> options,
+        ChoiceScope choiceScope,
+        boolean requirePveTag
+    ) {
         Objects.requireNonNull(players, "players");
         Objects.requireNonNull(color, "color");
         Objects.requireNonNull(dialogue, "dialogue");
-        Objects.requireNonNull(yesCommand, "yesCommand");
-        Objects.requireNonNull(noCommand, "noCommand");
+        Objects.requireNonNull(options, "options");
         Objects.requireNonNull(choiceScope, "choiceScope");
         if (delayTicks < 0) {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
+        if (options.isEmpty()) {
+            throw new IllegalArgumentException(
+                "At least one choice option is required."
+            );
+        }
+        List<ChoiceOption> choices = List.copyOf(options);
 
         return Bukkit.getScheduler().runTaskLater(
             SnapshotPvePlugin.getInstance(),
@@ -299,17 +356,21 @@ public final class PveDialogue {
                             player.getUniqueId(),
                             new PendingChoice(
                                 token,
-                                (clicker, yes) ->
-                                    runChoiceCommand(
-                                        clicker,
-                                        yes ? yesCommand : noCommand
-                                    ),
+                                (clicker, choice) ->
+                                    runChoiceCommand(clicker, choice.command()),
                                 new AtomicBoolean(),
-                                List.of(player.getUniqueId())
+                                List.of(player.getUniqueId()),
+                                choices
                             )
                         );
                         player.sendMessage(
-                            checkpointPrompt(dialogue, color, style, token)
+                            checkpointPrompt(
+                                dialogue,
+                                color,
+                                style,
+                                token,
+                                choices
+                            )
                         );
                         if (sound != null) {
                             player.playSound(
@@ -327,16 +388,18 @@ public final class PveDialogue {
                 String token = UUID.randomUUID().toString();
                 PendingChoice pending = new PendingChoice(
                     token,
-                    (player, yes) ->
-                        runChoiceCommand(player, yes ? yesCommand : noCommand),
+                    (player, choice) ->
+                        runChoiceCommand(player, choice.command()),
                     new AtomicBoolean(),
-                    recipients.stream().map(Player::getUniqueId).toList()
+                    recipients.stream().map(Player::getUniqueId).toList(),
+                    choices
                 );
                 Component message = checkpointPrompt(
                     dialogue,
                     color,
                     style,
-                    token
+                    token,
+                    choices
                 );
                 for (Player player : recipients) {
                     PENDING_CHOICES.put(player.getUniqueId(), pending);
@@ -360,17 +423,31 @@ public final class PveDialogue {
         String dialogue,
         TextColor color,
         TextDecoration style,
-        String token
+        String token,
+        List<ChoiceOption> options
     ) {
         Component prompt = Component.text(dialogue, color);
         if (style != null) {
             prompt = prompt.decorate(style);
         }
-        return prompt
-            .append(Component.text(": "))
-            .append(choiceButton("[Yes]", NamedTextColor.GREEN, token, "YES"))
-            .append(Component.space())
-            .append(choiceButton("[No]", NamedTextColor.RED, token, "NO"));
+        prompt = prompt.append(Component.text(": "));
+        for (int i = 0; i < options.size(); i++) {
+            if (i > 0) {
+                prompt = prompt.append(Component.space());
+            }
+            prompt = prompt.append(choiceButton(options.get(i), token, i));
+        }
+        return prompt;
+    }
+
+    public static List<ChoiceOption> defaultYesNoOptions(
+        String yesCommand,
+        String noCommand
+    ) {
+        return List.of(
+            new ChoiceOption("Yes", NamedTextColor.GREEN, null, yesCommand),
+            new ChoiceOption("No", NamedTextColor.RED, null, noCommand)
+        );
     }
 
     // One shared prompt component and callback for a player collection
@@ -379,25 +456,55 @@ public final class PveDialogue {
         Collection<? extends Player> players,
         BiConsumer<Player, Boolean> callback
     ) {
+        Objects.requireNonNull(callback, "callback");
+        return choicePromptWithOptions(
+            prompt,
+            players,
+            defaultYesNoOptions("-", "-"),
+            (clicker, choice) ->
+                callback.accept(
+                    clicker,
+                    choice.label().equalsIgnoreCase("yes")
+                )
+        );
+    }
+
+    public static Component choicePromptWithOptions(
+        String prompt,
+        Collection<? extends Player> players,
+        List<ChoiceOption> options,
+        BiConsumer<Player, ChoiceOption> callback
+    ) {
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(players, "players");
+        Objects.requireNonNull(options, "options");
         Objects.requireNonNull(callback, "callback");
+        if (options.isEmpty()) {
+            throw new IllegalArgumentException(
+                "At least one choice option is required."
+            );
+        }
+        List<ChoiceOption> choices = List.copyOf(options);
         String token = UUID.randomUUID().toString();
         PendingChoice pending = new PendingChoice(
             token,
             callback,
             new AtomicBoolean(),
-            players.stream().map(Player::getUniqueId).toList()
+            players.stream().map(Player::getUniqueId).toList(),
+            choices
         );
         for (Player player : players) {
             PENDING_CHOICES.put(player.getUniqueId(), pending);
         }
 
-        // Reuse the same buttons so the group shares one answer
-        return Component.text(prompt + " ", NamedTextColor.RED)
-            .append(choiceButton(" [YES]", NamedTextColor.GREEN, token, "YES"))
-            .append(Component.space())
-            .append(choiceButton("[NO]", NamedTextColor.RED, token, "NO"));
+        Component message = Component.text(prompt + " ", NamedTextColor.RED);
+        for (int i = 0; i < choices.size(); i++) {
+            if (i > 0) {
+                message = message.append(Component.space());
+            }
+            message = message.append(choiceButton(choices.get(i), token, i));
+        }
+        return message;
     }
 
     // Dispatch a chosen command as the player, with a tiny placeholder swap
@@ -429,18 +536,33 @@ public final class PveDialogue {
             );
             return true;
         }
-        if (!choice.equalsIgnoreCase("yes") && !choice.equalsIgnoreCase("no")) {
+        int optionIndex;
+        try {
+            optionIndex = Integer.parseInt(choice);
+        } catch (NumberFormatException exception) {
             player.sendMessage(
-                Component.text("Choose yes or no.", NamedTextColor.RED)
+                Component.text(
+                    "That checkpoint option is invalid.",
+                    NamedTextColor.RED
+                )
+            );
+            return true;
+        }
+        if (optionIndex < 0 || optionIndex >= pending.options().size()) {
+            player.sendMessage(
+                Component.text(
+                    "That checkpoint option is invalid.",
+                    NamedTextColor.RED
+                )
             );
             return true;
         }
 
         if (pending.consumed().compareAndSet(false, true)) {
             // Let the whole audience know who answered
-            boolean yes = choice.equalsIgnoreCase("yes");
+            ChoiceOption selected = pending.options().get(optionIndex);
             Component announcement = Component.text(
-                player.getName() + " chose " + (yes ? "Yes" : "No"),
+                player.getName() + " chose " + selected.label(),
                 NamedTextColor.GRAY
             );
             for (UUID recipientId : pending.audience()) {
@@ -449,7 +571,7 @@ public final class PveDialogue {
                     recipient.sendMessage(announcement);
                 }
             }
-            pending.callback().accept(player, yes);
+            pending.callback().accept(player, selected);
         }
         return true;
     }
@@ -466,18 +588,29 @@ public final class PveDialogue {
 
     // Clickable choice with a little hover hint
     private static Component choiceButton(
-        String label,
-        NamedTextColor color,
+        ChoiceOption option,
         String token,
-        String choice
+        int optionIndex
     ) {
-        return Component.text(label, color)
+        Component button = Component.text(
+            "[" + option.label() + "]",
+            option.color()
+        );
+        if (option.style() != null) {
+            button = button.decorate(option.style());
+        }
+        return button
             .clickEvent(
-                ClickEvent.runCommand("/pvecheckpoint " + token + " " + choice)
+                ClickEvent.runCommand(
+                    "/pvecheckpoint " + token + " " + optionIndex
+                )
             )
             .hoverEvent(
                 HoverEvent.showText(
-                    Component.text("Click to choose " + choice, color)
+                    Component.text(
+                        "Click to choose " + option.label(),
+                        option.color()
+                    )
                 )
             );
     }

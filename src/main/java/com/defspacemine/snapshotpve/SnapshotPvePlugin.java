@@ -533,24 +533,85 @@ public class SnapshotPvePlugin extends JavaPlugin {
         );
     }
 
-    // Parse the marker-based shared Yes/No checkpoint prompt
+    // Parse a checkpoint prompt with legacy Yes/No or custom choice options
     private boolean sendCheckpointPrompt(CommandSender sender, String[] args) {
-        if (args.length < 9 || !args[6].regionMatches(true, 0, "yes=", 0, 4)) {
+        int messageIndex = findMarker(args, 6, "message=");
+        if (args.length < 7 || messageIndex < 0) {
             sender.sendMessage(
                 "Usage: /pvecheckpoint <delayTicks> <color> <style|NONE> <sound|NONE> " +
                     "<volume> <pitch> " +
-                    "yes=<command...> no=<command...> message=<dialogue...> " +
+                    "[option=<label>%<color>%<style|NONE>%<command...> ...] " +
+                    "message=<dialogue...> " +
                     "[target=<selector>] [scope=PLAYER|EVERYONE]"
             );
             return true;
         }
 
-        int noIndex = findMarker(args, 7, "no=");
-        int messageIndex =
-            noIndex < 0 ? -1 : findMarker(args, noIndex + 1, "message=");
-        if (noIndex < 0 || messageIndex < 0) {
+        List<Integer> optionStarts = new ArrayList<>();
+        for (int i = 6; i < messageIndex; i++) {
+            if (args[i].regionMatches(true, 0, "option=", 0, 7)) {
+                optionStarts.add(i);
+            }
+        }
+        int yesIndex = findMarker(args, 6, messageIndex, "yes=");
+        int noIndex = findMarker(args, 6, messageIndex, "no=");
+        List<PveDialogue.ChoiceOption> choiceOptions;
+        if (!optionStarts.isEmpty()) {
+            if (
+                optionStarts.get(0) != 6 ||
+                yesIndex >= 0 ||
+                noIndex >= 0
+            ) {
+                sender.sendMessage(
+                    "Use one or more option= entries, or the legacy yes=/no= entries, but not both."
+                );
+                return true;
+            }
+            choiceOptions = new ArrayList<>(optionStarts.size());
+            try {
+                for (int i = 0; i < optionStarts.size(); i++) {
+                    int optionEnd = i + 1 < optionStarts.size()
+                        ? optionStarts.get(i + 1)
+                        : messageIndex;
+                    choiceOptions.add(
+                        parseCheckpointOption(
+                            joinSection(
+                                args,
+                                optionStarts.get(i),
+                                optionEnd,
+                                "option="
+                            )
+                        )
+                    );
+                }
+            } catch (IllegalArgumentException exception) {
+                sender.sendMessage(exception.getMessage());
+                return true;
+            }
+        } else if (yesIndex >= 0 || noIndex >= 0) {
+            if (yesIndex != 6 || noIndex <= yesIndex) {
+                sender.sendMessage(
+                    "Legacy choices must provide yes= and no= before message=."
+                );
+                return true;
+            }
+            String yesCommand = joinSection(args, yesIndex, noIndex, "yes=");
+            String noCommand = joinSection(args, noIndex, messageIndex, "no=");
+            if (yesCommand.isBlank() || noCommand.isBlank()) {
+                sender.sendMessage(
+                    "Provide a command or - for each legacy Yes/No choice."
+                );
+                return true;
+            }
+            choiceOptions = PveDialogue.defaultYesNoOptions(
+                yesCommand,
+                noCommand
+            );
+        } else if (messageIndex == 6) {
+            choiceOptions = PveDialogue.defaultYesNoOptions("-", "-");
+        } else {
             sender.sendMessage(
-                "Include yes=, no=, and message= sections in that order."
+                "Use one or more option= entries, or the legacy yes=/no= entries."
             );
             return true;
         }
@@ -603,8 +664,6 @@ public class SnapshotPvePlugin extends JavaPlugin {
             return true;
         }
 
-        String yesCommand = joinSection(args, 6, noIndex, "yes=");
-        String noCommand = joinSection(args, noIndex, messageIndex, "no=");
         int messageEnd = args.length;
         String targetSelector = null;
         PveDialogue.ChoiceScope choiceScope = PveDialogue.ChoiceScope.EVERYONE;
@@ -653,9 +712,9 @@ public class SnapshotPvePlugin extends JavaPlugin {
             messageEnd,
             "message="
         );
-        if (yesCommand.isBlank() || noCommand.isBlank() || dialogue.isBlank()) {
+        if (dialogue.isBlank()) {
             sender.sendMessage(
-                "Provide a command or - for each choice, and non-empty dialogue."
+                "Provide non-empty checkpoint dialogue."
             );
             return true;
         }
@@ -671,7 +730,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
             }
         }
 
-        PveDialogue.sendCheckpointPrompt(
+        PveDialogue.sendCheckpointPromptWithOptions(
             targets,
             color,
             style,
@@ -680,12 +739,61 @@ public class SnapshotPvePlugin extends JavaPlugin {
             volume,
             pitch,
             delayTicks,
-            yesCommand,
-            noCommand,
+            choiceOptions,
             choiceScope,
             targetSelector == null
         );
         return true;
+    }
+
+    private PveDialogue.ChoiceOption parseCheckpointOption(String option) {
+        int labelEnd = option.indexOf('%');
+        int colorEnd = labelEnd < 0 ? -1 : option.indexOf('%', labelEnd + 1);
+        int styleEnd = colorEnd < 0 ? -1 : option.indexOf('%', colorEnd + 1);
+        if (
+            labelEnd <= 0 ||
+            colorEnd <= labelEnd + 1 ||
+            styleEnd <= colorEnd + 1 ||
+            styleEnd == option.length() - 1
+        ) {
+            throw new IllegalArgumentException(
+                "Each option must look like option=<label>%<color>%<style|NONE>%<command...>."
+            );
+        }
+        String label = option.substring(0, labelEnd).trim();
+        String colorName = option.substring(labelEnd + 1, colorEnd);
+        NamedTextColor optionColor = colorName.equalsIgnoreCase("DEFAULT")
+            ? NamedTextColor.WHITE
+            : NamedTextColor.NAMES.value(
+                  colorName.toLowerCase(java.util.Locale.ROOT)
+              );
+        if (optionColor == null) {
+            throw new IllegalArgumentException(
+                "Choice colors must be named colors such as GREEN, RED, or DEFAULT."
+            );
+        }
+        TextDecoration optionStyle;
+        try {
+            optionStyle = parseStyle(
+                option.substring(colorEnd + 1, styleEnd)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                "Use a choice style: NONE, BOLD, ITALIC, UNDERLINED, STRIKETHROUGH, or OBFUSCATED."
+            );
+        }
+        String command = option.substring(styleEnd + 1).trim();
+        if (label.isEmpty() || command.isEmpty()) {
+            throw new IllegalArgumentException(
+                "Choice labels and commands must not be empty; use - for no action."
+            );
+        }
+        return new PveDialogue.ChoiceOption(
+            label,
+            optionColor,
+            optionStyle,
+            command
+        );
     }
 
     // Resolve a Minecraft selector and keep player entities only
@@ -754,7 +862,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
     }
 
     // Accept Bukkit sound names or namespaced keys; NONE skips playback
-    private Sound parseSound(String soundName) {
+    static Sound parseSound(String soundName) {
         if (soundName.equalsIgnoreCase("NONE")) {
             return null;
         }
@@ -773,7 +881,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
     }
 
     // Check volume and pitch before handing them to the sound API
-    private float parseSoundSetting(
+    static float parseSoundSetting(
         String value,
         String settingName,
         boolean allowZero
