@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -44,6 +45,9 @@ public final class PvePrologue implements Listener {
     // Dialogue stays tied to the summoned entity UUID
     private static final Map<UUID, EntityDialogue> ENTITY_DIALOGUE =
         new HashMap<>();
+
+    // Hidden incrementing counter so every summon gets a distinct marker tag
+    private static final AtomicLong MARKER_COUNTER = new AtomicLong();
 
     // Validate the request, let vanilla handle SNBT, then attach the dialogue
     public boolean summon(CommandSender sender, String[] args) {
@@ -109,7 +113,7 @@ public final class PvePrologue implements Listener {
         }
 
         // Unique marker so only this exact mob is picked up afterwards
-        final String marker = "pveprologue_" + UUID.randomUUID();
+        final String marker = "pveprologue_" + MARKER_COUNTER.incrementAndGet();
         nbt = addScoreboardTag(nbt, marker);
 
         String summonCommand =
