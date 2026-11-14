@@ -20,8 +20,9 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.player.PlayerInteractAtEntityEvent;
+import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.inventory.EquipmentSlot;
 
@@ -48,6 +49,22 @@ public final class PvePrologue implements Listener {
     // Dialogue stays tied to the summoned entity UUID
     private static final Map<UUID, EntityDialogue> ENTITY_DIALOGUE =
         new HashMap<>();
+
+    // Filled by the spawn listener while the summon command is running
+    private static EntityType capturingType = null;
+    private static UUID capturedId = null;
+
+    // Catch the entity at the moment vanilla spawns it (synchronous, main thread)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntitySpawn(EntitySpawnEvent event) {
+        if (
+            capturingType != null &&
+            capturedId == null &&
+            event.getEntityType() == capturingType
+        ) {
+            capturedId = event.getEntity().getUniqueId();
+        }
+    }
 
     // Validate the request, let vanilla handle SNBT, then attach the dialogue
     public boolean summon(CommandSender sender, String[] args) {
@@ -129,27 +146,38 @@ public final class PvePrologue implements Listener {
             " " +
             formatCoordinate(location.getZ()) +
             (nbt.isEmpty() ? "" : " " + nbt);
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), summonCommand);
 
-        Entity entity = location
-            .getWorld()
-            .getEntities()
-            .stream()
-            .filter(candidate ->
-                !existingEntities.contains(candidate.getUniqueId()) &&
-                candidate.getType() == type
-            )
-            .min((first, second) ->
-                Double.compare(
-                    first.getLocation().distanceSquared(location),
-                    second.getLocation().distanceSquared(location)
+        capturingType = type;
+        capturedId = null;
+        UUID entityId;
+        try {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), summonCommand);
+            entityId = capturedId;
+        } finally {
+            capturingType = null;
+            capturedId = null;
+        }
+
+        // Fallback: nearest brand-new entity of this type, no strict distance limit
+        if (entityId == null) {
+            entityId = location
+                .getWorld()
+                .getEntities()
+                .stream()
+                .filter(candidate ->
+                    !existingEntities.contains(candidate.getUniqueId()) &&
+                    candidate.getType() == type
                 )
-            )
-            .filter(candidate ->
-                candidate.getLocation().distanceSquared(location) <= 1.0
-            )
-            .orElse(null);
-        if (entity == null || !entity.isValid()) {
+                .min((first, second) ->
+                    Double.compare(
+                        first.getLocation().distanceSquared(location),
+                        second.getLocation().distanceSquared(location)
+                    )
+                )
+                .map(Entity::getUniqueId)
+                .orElse(null);
+        }
+        if (entityId == null) {
             sender.sendMessage(
                 Component.text(
                     "The summon command did not spawn the requested mob. Check the mob type and SNBT data, and review the server log for command errors.",
@@ -164,7 +192,7 @@ public final class PvePrologue implements Listener {
             .mapToDouble(DialogueLine::weight)
             .sum();
         ENTITY_DIALOGUE.put(
-            entity.getUniqueId(),
+            entityId,
             new EntityDialogue(List.copyOf(lines), totalWeight)
         );
         sender.sendMessage(
@@ -186,31 +214,24 @@ public final class PvePrologue implements Listener {
         return true;
     }
 
-    // Say one weighted line on a main-hand interaction
+    // PlayerInteractAtEntityEvent extends this event, so one handler covers both
     @EventHandler
     public void onEntityInteract(PlayerInteractEntityEvent event) {
-        sendEntityDialogue(event.getPlayer(), event.getRightClicked(), event.getHand());
-    }
-
-    @EventHandler
-    public void onEntityInteractAt(PlayerInteractAtEntityEvent event) {
-        sendEntityDialogue(event.getPlayer(), event.getRightClicked(), event.getHand());
-    }
-
-    private void sendEntityDialogue(
-        Player player,
-        Entity entity,
-        EquipmentSlot hand
-    ) {
-        if (hand != EquipmentSlot.HAND) {
+        if (event.getHand() != EquipmentSlot.HAND) {
             return;
         }
+        if (sendEntityDialogue(event.getPlayer(), event.getRightClicked())) {
+            // Stop the villager trade GUI from opening over the chat message
+            event.setCancelled(true);
+        }
+    }
 
+    private boolean sendEntityDialogue(Player player, Entity entity) {
         EntityDialogue dialogue = ENTITY_DIALOGUE.get(
             entity.getUniqueId()
         );
         if (dialogue == null) {
-            return;
+            return false;
         }
 
         double roll = ThreadLocalRandom.current().nextDouble(
@@ -235,6 +256,7 @@ public final class PvePrologue implements Listener {
             message = message.decorate(selectedLine.style());
         }
         player.sendMessage(message);
+        return true;
     }
 
     // Toss dialogue data when its entity dies
@@ -457,7 +479,7 @@ public final class PvePrologue implements Listener {
             value >= Long.MIN_VALUE &&
             value < Long.MAX_VALUE
             ? Long.toString((long) value)
-            : Double.toString(value);
+            : new java.math.BigDecimal(value).setScale(6, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
     // One usage string for all bad argument shapes
