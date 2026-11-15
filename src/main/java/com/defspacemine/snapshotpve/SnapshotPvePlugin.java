@@ -384,6 +384,29 @@ public class SnapshotPvePlugin extends JavaPlugin {
         }
 
         int messageEnd = args.length;
+        String runCommand = null;
+        int runIndex = findMarker(args, 5, messageEnd, "run=");
+        if (runIndex >= 0) {
+            runCommand = joinSection(args, runIndex, messageEnd, "run=").trim();
+            if (runCommand.isEmpty()) {
+                sendDialogueSyntaxError(
+                    sender,
+                    commandName,
+                    "run= requires a console command."
+                );
+                return true;
+            }
+            if (!sender.hasPermission("snapshotpve.summon.console")) {
+                sender.sendMessage(
+                    Component.text(
+                        "You do not have permission to run console commands from dialogue.",
+                        NamedTextColor.RED
+                    )
+                );
+                return true;
+            }
+            messageEnd = runIndex;
+        }
         String targetSelector = null;
         // Pull the selector off the end so it doesn't become dialogue text
         if (
@@ -402,9 +425,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
             }
             messageEnd--;
         }
-        int appendIndex = includeDefSpaceMine
-            ? -1
-            : findMarker(args, 5, messageEnd, "append=");
+        int appendIndex = findMarker(args, 5, messageEnd, "append=");
         String dialogue = String.join(
             " ",
             java.util.Arrays.copyOfRange(
@@ -476,11 +497,55 @@ public class SnapshotPvePlugin extends JavaPlugin {
         if (targets == null) {
             return true;
         }
-                for (Player player : targets) {
-            // Route to the appropriate shared renderer
-            if (includeDefSpaceMine) {
-                if (appendedDialogue != null) {
-                    PveDialogue.sendDefAppendedDelayed(
+        if (runCommand != null) {
+            String commandToRun = runCommand;
+            Component message = PveDialogue.dialogueComponent(
+                color,
+                dialogue,
+                appendedColor,
+                appendedStyle,
+                appendedDialogue,
+                includeDefSpaceMine
+            );
+            PveDialogue.sendToTargetsDelayed(
+                targets,
+                message,
+                sound,
+                volume,
+                pitch,
+                delayTicks,
+                () -> dispatchDialogueCommand(commandToRun)
+            );
+        } else {
+            for (Player player : targets) {
+                // Route to the appropriate shared renderer
+                if (includeDefSpaceMine) {
+                    if (appendedDialogue != null) {
+                        PveDialogue.sendDefAppendedDelayed(
+                            player,
+                            color,
+                            dialogue,
+                            appendedColor,
+                            appendedStyle,
+                            appendedDialogue,
+                            sound,
+                            volume,
+                            pitch,
+                            delayTicks
+                        );
+                    } else {
+                        PveDialogue.sendDefDelayed(
+                            player,
+                            color,
+                            dialogue,
+                            sound,
+                            volume,
+                            pitch,
+                            delayTicks
+                        );
+                    }
+                } else if (appendedDialogue != null) {
+                    PveDialogue.sendAppendedDelayed(
                         player,
                         color,
                         dialogue,
@@ -493,9 +558,10 @@ public class SnapshotPvePlugin extends JavaPlugin {
                         delayTicks
                     );
                 } else {
-                    PveDialogue.sendDefDelayed(
+                    PveDialogue.sendDelayed(
                         player,
                         color,
+                        null,
                         dialogue,
                         sound,
                         volume,
@@ -503,33 +569,21 @@ public class SnapshotPvePlugin extends JavaPlugin {
                         delayTicks
                     );
                 }
-            } else if (appendedDialogue != null) {
-                PveDialogue.sendAppendedDelayed(
-                    player,
-                    color,
-                    dialogue,
-                    appendedColor,
-                    appendedStyle,
-                    appendedDialogue,
-                    sound,
-                    volume,
-                    pitch,
-                    delayTicks
-                );
-            } else {
-                PveDialogue.sendDelayed(
-                    player,
-                    color,
-                    null,
-                    dialogue,
-                    sound,
-                    volume,
-                    pitch,
-                    delayTicks
-                );
             }
         }
         return true;
+    }
+
+    private void dispatchDialogueCommand(String command) {
+        String consoleCommand = command.startsWith("/")
+            ? command.substring(1)
+            : command;
+        if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), consoleCommand)) {
+            getLogger().warning(
+                "Could not dispatch a dialogue console command: " +
+                    consoleCommand
+            );
+        }
     }
 
     // One concise error path with the right command name in the usage line
@@ -543,9 +597,11 @@ public class SnapshotPvePlugin extends JavaPlugin {
             "Usage: /" +
                 commandName +
                 " <delayTicks> <color> <sound|NONE> <volume> <pitch> <message...>" +
+                " [append=<color> <style|NONE> <text...>]" +
                 (commandName.equals("pvePrologueDialogue")
-                    ? " [append=<color> <style|NONE> <text...>] [target=<selector>]"
-                    : "")
+                    ? " [target=<selector>]"
+                    : "") +
+                " [run=<console-command...>]"
         );
     }
 

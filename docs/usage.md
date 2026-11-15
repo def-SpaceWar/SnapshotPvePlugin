@@ -70,12 +70,15 @@ In `scope=EVERYONE`, the first recipient to click decides for the group; each co
 that player, and everyone is told which label they chose. With no `option=`, `yes=`, or `no=`
 entries, the default Yes/No buttons have no callbacks.
 
-For prologue dialogue, command blocks can call the existing `/pveprologuedialogue` command for each
-line in a sequence. Chain command blocks or use delays to control the order; for example:
+For colored PVE dialogue, command blocks can call `/pveprologuedialogue` or the
+`/pvedefdialogue` variant, which adds the defSpaceMine speaker prefix. Add
+`append=<color> <style> <text...>` to give the appended text its own color and style. Both commands
+also accept a trailing `run=<console-command...>` parameter. It runs once as console after the line
+is sent and requires `snapshotpve.summon.console` (default: operators).
 
 ```text
-/pveprologuedialogue 0 GOLD NONE 1 1 The journey begins. target=@a[tag=playingPVE]
-/pveprologuedialogue 40 WHITE NONE 1 1 Follow the path ahead. target=@a[tag=playingPVE]
+/pveprologuedialogue 0 GOLD NONE 1 1 The journey begins. target=@a[tag=playingPVE] run=setblock -346 65 -183 minecraft:redstone_block
+/pvedefdialogue 40 WHITE NONE 1 1 Follow the path append=GOLD BOLD ahead. run=setblock -346 65 -183 minecraft:redstone_block
 ```
 
 ### Adding new top-level commands

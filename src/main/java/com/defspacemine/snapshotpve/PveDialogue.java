@@ -308,6 +308,86 @@ public final class PveDialogue {
         );
     }
 
+    static Component dialogueComponent(
+        TextColor color,
+        String dialogue,
+        TextColor appendedColor,
+        TextDecoration appendedStyle,
+        String appendedDialogue,
+        boolean includeDefSpaceMine
+    ) {
+        Objects.requireNonNull(color, "color");
+        Objects.requireNonNull(dialogue, "dialogue");
+
+        Component message = Component.text(dialogue, color);
+        if (includeDefSpaceMine) {
+            message = Component.empty()
+                .append(Component.text("<", NamedTextColor.RED))
+                .append(
+                    Component.text("defSpaceMine", NamedTextColor.RED).decorate(
+                        TextDecoration.OBFUSCATED
+                    )
+                )
+                .append(Component.text("> ", NamedTextColor.RED))
+                .append(message);
+        }
+        if (appendedDialogue != null) {
+            Objects.requireNonNull(appendedColor, "appendedColor");
+            Component appended = Component.text(
+                appendedDialogue,
+                appendedColor
+            );
+            if (appendedStyle != null) {
+                appended = appended.decorate(appendedStyle);
+            }
+            message = message.append(Component.space()).append(appended);
+        }
+        return message;
+    }
+
+    static BukkitTask sendToTargetsDelayed(
+        Collection<? extends Player> players,
+        Component message,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks,
+        Runnable afterSend
+    ) {
+        Objects.requireNonNull(players, "players");
+        Objects.requireNonNull(message, "message");
+        Objects.requireNonNull(afterSend, "afterSend");
+        if (delayTicks < 0) {
+            throw new IllegalArgumentException("delayTicks cannot be negative");
+        }
+
+        List<? extends Player> recipients = List.copyOf(players);
+        return Bukkit.getScheduler().runTaskLater(
+            SnapshotPvePlugin.getInstance(),
+            () -> {
+                boolean sent = false;
+                for (Player player : recipients) {
+                    if (player.isOnline()) {
+                        player.sendMessage(message);
+                        if (sound != null) {
+                            player.playSound(
+                                player.getLocation(),
+                                sound,
+                                volume,
+                                pitch
+                            );
+                        }
+                        sent = true;
+                    }
+                }
+                if (sent) {
+                    afterSend.run();
+                }
+            },
+            delayTicks
+        );
+    }
+
     // Single-player prompt adapter
     public static Component choicePrompt(
         String prompt,
