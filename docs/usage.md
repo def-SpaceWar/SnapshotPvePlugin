@@ -7,24 +7,30 @@ Use absolute coordinates or `~`/`~offset` relative to the sender. Provide SNBT a
 use `-` when no custom NBT is needed. Each dialogue entry uses
 `COLOR%STYLE%weight%text`, with commas between entries. Add an optional `|sound=<sound|NONE>`
 suffix to play a sound for that line; append `%<volume>%<pitch>` to set its sound level. Use
-`DEFAULT` for WHITE and `NONE` for plain text:
+`DEFAULT` for WHITE and `NONE` for plain text. Escape a comma in text as `\,`, a literal pipe as
+`\|`, a semicolon as `\;`, and a literal backslash as `\\`:
 
 ```text
-/pvesummon <mob> <x> <y> <z> [<snbt>|-] <color>%<style>%<weight>%<text>,...
+/pvesummon <mob> <x> <y> <z> [--no-push] [<snbt>|-] <color>%<style>%<weight>%<text>,...
 /pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,CustomName:'{"text":"Guide"}'} GOLD%BOLD%70%Welcome traveler.|sound=ENTITY_VILLAGER_YES%0.8%1.2,RED%ITALIC%30%The road is dangerous.|sound=ENTITY_VILLAGER_NO
 /pvesummon minecraft:zombie ~2 ~ ~ {IsBaby:1b} DEFAULT%NONE%80%Brains!,WHITE%BOLD%20%Run!
+/pvesummon minecraft:villager ~ ~ ~ --no-push - DEFAULT%NONE%100%Welcome traveler.
+/pvesummon minecraft:villager ~ ~ ~ - DEFAULT%NONE%100%Don't tell anyone\, but the guide said hello\|goodbye.
 ```
 
+Use `--no-push` immediately after the coordinates to disable entity collisions for a living entity.
 One weighted line is picked on each right-click; weights don't need to add up to 100. For a fixed
 sequence, use `sequence=PLAYER` to message only the player who right-clicks, or `sequence=PLAYINGPVE`
-to message every online player with the `playingPVE` tag. The `|` character is reserved for line
-settings and cannot be included in dialogue text:
+to message every online player with the `playingPVE` tag. To choose a weighted sequence branch, use
+`sequence=WEIGHTED_PLAYER` or `sequence=WEIGHTED_PLAYINGPVE`; branches use `<weight>:<sequence-lines>`
+and are separated by semicolons:
 
 ```text
 /pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER GOLD%BOLD%0%Welcome traveler.,WHITE%NONE%40%Follow the path ahead.
 /pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER GOLD%BOLD%0%The gate clicks open.|sound=BLOCK_IRON_DOOR_OPEN%0.7%1.2,WHITE%NONE%30%Step inside.|sound=ENTITY_VILLAGER_YES
 /pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYINGPVE GOLD%BOLD%0%The gate is open.|append=WHITE%NONE%Move quickly.|check=Will you enter?|yes=tp %player% 0 64 0|no=-
 /pvesummon minecraft:villager ~ ~ ~ - sequence=PLAYER DARK_GREEN%NONE%0%The road forks.|check=Choose a route.|option=Forest%GREEN%BOLD%tp %player% 24 72 24|option=River%AQUA%ITALIC%tp %player% 36 64 12|option=Turn back%RED%NONE%-
+/pvesummon minecraft:villager ~ ~ ~ - sequence=WEIGHTED_PLAYER 95:WHITE%NONE%0%Go away. I'm eating.;5:WHITE%NONE%40%Have you ever considered this?,WHITE%NONE%40%They put preservatives in our foods.
 /pvesummon minecraft:villager ~ ~ ~ {NoAI:1b,Invulnerable:1b,CustomName:'{"text":"Gatekeeper"}'} sequence=PLAYINGPVE GOLD%BOLD%100%The gate shudders open.|append=YELLOW%ITALIC%Runes blaze across the stone.|check=Will your group enter?|yes=tp @a[tag=playingPVE] 120 64 -30|no=tp @a[tag=playingPVE] 96 64 8,GRAY%NONE%40%The gatekeeper watches the decision.,AQUA%NONE%60%The runes fade away.
 /pvesummon minecraft:villager ~1 ~ ~ {NoAI:1b,CustomName:'{"text":"Cartographer"}'} sequence=PLAYER DARK_AQUA%BOLD%0%The map is incomplete.|append=GRAY%ITALIC%The ink is smudged.|check=Follow the marked trail?|yes=tp %player% 24 72 24|no=tp %player% 0 64 0,WHITE%NONE%20%The map folds shut.,GOLD%NONE%50%The cartographer waits for your next move.
 ```
@@ -38,10 +44,11 @@ them. Sound names can be Bukkit names such as `ENTITY_VILLAGER_YES` or namespace
 someone chooses. For custom choices,
 replace `yes=` and `no=` with one or more `|option=<label>%<color>%<style>%<command>` entries.
 The label, named color, and style (or `NONE`) control each button; use `-` for no action. A command
-runs as the player who chose, and `%player%` is replaced with their name. For `PLAYINGPVE`, the
-first player to choose decides for everyone, and the group is told who chose what. Commas separate
-dialogue lines and `|` separates options, so those characters cannot be included in the text or
-commands.
+from `yes=`, `no=`, or `option=` runs as the summoned entity, and `%player%` is replaced with the
+name of the player who chose. `|run=<console-command>` runs when that sequence line appears, as the server console; it
+requires `snapshotpve.summon.console` (default: operators). For `PLAYINGPVE`, the
+first player to choose decides for everyone, and the group is told who chose what. Commas separate dialogue lines, `|` separates options, and semicolons separate weighted branches.
+Escape them as `\,`, `\|`, and `\;` to include them in dialogue text or commands.
 
 While a sequence is active, its NPC cannot be clicked again. A player already receiving a sequence
 cannot start or receive dialogue from another dialogue NPC until the sequence finishes. Dialogue is

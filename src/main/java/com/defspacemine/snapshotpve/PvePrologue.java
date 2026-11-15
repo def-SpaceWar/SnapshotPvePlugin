@@ -21,6 +21,7 @@ import org.bukkit.command.BlockCommandSender;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -59,7 +60,13 @@ public final class PvePrologue implements Listener {
         AppendedLine appendedLine,
         SoundEffect soundEffect,
         String checkPrompt,
-        List<PveDialogue.ChoiceOption> checkOptions
+        List<PveDialogue.ChoiceOption> checkOptions,
+        List<String> consoleCommands
+    ) {}
+
+    private record WeightedSequenceBranch(
+        double weight,
+        List<SequenceLine> lines
     ) {}
 
     private enum AudienceMode {
@@ -71,23 +78,26 @@ public final class PvePrologue implements Listener {
         List<DialogueLine> lines,
         double totalWeight,
         List<SequenceLine> sequenceLines,
-        AudienceMode audienceMode
+        AudienceMode audienceMode,
+        List<WeightedSequenceBranch> weightedSequenceBranches
     ) {}
 
     private static final class ActiveConversation {
 
         private final UUID entityId;
+        private final Entity commandExecutor;
         private final AudienceMode audienceMode;
         private final Set<UUID> recipients;
         private BukkitTask task;
         private boolean finished;
 
         private ActiveConversation(
-            UUID entityId,
+            Entity commandExecutor,
             AudienceMode audienceMode,
             Set<UUID> recipients
         ) {
-            this.entityId = entityId;
+            this.entityId = commandExecutor.getUniqueId();
+            this.commandExecutor = commandExecutor;
             this.audienceMode = audienceMode;
             this.recipients = recipients;
         }
@@ -120,6 +130,9 @@ public final class PvePrologue implements Listener {
             return true;
         }
 
+        final boolean preventPush = args[4].equalsIgnoreCase("--no-push");
+        int tailStart = preventPush ? 5 : 4;
+
         Location senderLocation = getSenderLocation(sender);
         if (senderLocation == null || senderLocation.getWorld() == null) {
             sender.sendMessage(
@@ -141,6 +154,19 @@ public final class PvePrologue implements Listener {
             );
             return true;
         }
+        Class<? extends Entity> entityClass = type.getEntityClass();
+        if (
+            preventPush &&
+            (entityClass == null || !LivingEntity.class.isAssignableFrom(entityClass))
+        ) {
+            sender.sendMessage(
+                Component.text(
+                    "The --no-push option is only supported for living entities.",
+                    NamedTextColor.RED
+                )
+            );
+            return true;
+        }
 
         Location location;
         String nbt;
@@ -154,7 +180,7 @@ public final class PvePrologue implements Listener {
             );
             String tail = String.join(
                 " ",
-                java.util.Arrays.copyOfRange(args, 4, args.length)
+                java.util.Arrays.copyOfRange(args, tailStart, args.length)
             ).trim();
             ParsedTail parsedTail = parseTail(tail);
             nbt = parsedTail.nbt();
@@ -164,6 +190,18 @@ public final class PvePrologue implements Listener {
                 Component.text(exception.getMessage(), NamedTextColor.RED)
             );
             sendUsage(sender);
+            return true;
+        }
+        if (
+            hasConsoleCommands(dialogue) &&
+            !sender.hasPermission("snapshotpve.summon.console")
+        ) {
+            sender.sendMessage(
+                Component.text(
+                    "You do not have permission to add console commands to dialogue.",
+                    NamedTextColor.RED
+                )
+            );
             return true;
         }
 
@@ -196,6 +234,9 @@ public final class PvePrologue implements Listener {
                     if (candidate.getScoreboardTags().contains(marker)) {
                         entityId = candidate.getUniqueId();
                         candidate.removeScoreboardTag(marker);
+                        if (preventPush && candidate instanceof LivingEntity living) {
+                            living.setCollidable(false);
+                        }
                         break;
                     }
                 }
@@ -210,9 +251,19 @@ public final class PvePrologue implements Listener {
                 }
 
                 ENTITY_DIALOGUE.put(entityId, finalDialogue);
-                int lineCount = finalDialogue.sequenceLines().isEmpty()
+                boolean weightedSequence = !finalDialogue
+                    .weightedSequenceBranches()
+                    .isEmpty();
+                int lineCount = weightedSequence
+                    ? finalDialogue.weightedSequenceBranches().size()
+                    : finalDialogue.sequenceLines().isEmpty()
                     ? finalDialogue.lines().size()
                     : finalDialogue.sequenceLines().size();
+                String dialogueDescription = weightedSequence
+                    ? " weighted dialogue branch(es)."
+                    : finalDialogue.sequenceLines().isEmpty()
+                    ? " weighted dialogue line(s)."
+                    : " sequential dialogue line(s).";
                 sender.sendMessage(
                     Component.text(
                         "Summoned " +
@@ -225,9 +276,7 @@ public final class PvePrologue implements Listener {
                             formatCoordinate(location.getZ()) +
                             " with " +
                             lineCount +
-                            (finalDialogue.sequenceLines().isEmpty()
-                                ? " weighted dialogue line(s)."
-                                : " sequential dialogue line(s)."),
+                            dialogueDescription,
                         NamedTextColor.GREEN
                     )
                 );
@@ -242,7 +291,18 @@ public final class PvePrologue implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) {
             return;
         }
-        UUID entityId = event.getRightClicked().getUniqueId();
+        Entity entity = event.getRightClicked();
+        while (
+            entity != null &&
+            !ENTITY_DIALOGUE.containsKey(entity.getUniqueId())
+        ) {
+            entity = entity.getVehicle();
+        }
+        if (entity == null) {
+            return;
+        }
+
+        UUID entityId = entity.getUniqueId();
         if (ACTIVE_CONVERSATIONS.containsKey(entityId)) {
             event.setCancelled(true);
             return;
@@ -256,7 +316,7 @@ public final class PvePrologue implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (sendEntityDialogue(event.getPlayer(), event.getRightClicked())) {
+        if (sendEntityDialogue(event.getPlayer(), entity)) {
             event.setCancelled(true);
         }
     }
@@ -267,8 +327,37 @@ public final class PvePrologue implements Listener {
             return false;
         }
 
+        if (!dialogue.weightedSequenceBranches().isEmpty()) {
+            double roll = ThreadLocalRandom.current().nextDouble(
+                dialogue.totalWeight()
+            );
+            double cumulativeWeight = 0;
+            WeightedSequenceBranch selectedBranch = dialogue
+                .weightedSequenceBranches()
+                .get(dialogue.weightedSequenceBranches().size() - 1);
+            for (WeightedSequenceBranch candidate : dialogue.weightedSequenceBranches()) {
+                cumulativeWeight += candidate.weight();
+                if (roll < cumulativeWeight) {
+                    selectedBranch = candidate;
+                    break;
+                }
+            }
+            startConversation(
+                player,
+                entity,
+                dialogue.audienceMode(),
+                selectedBranch.lines()
+            );
+            return true;
+        }
+
         if (!dialogue.sequenceLines().isEmpty()) {
-            startConversation(player, entity, dialogue);
+            startConversation(
+                player,
+                entity,
+                dialogue.audienceMode(),
+                dialogue.sequenceLines()
+            );
             return true;
         }
 
@@ -301,10 +390,10 @@ public final class PvePrologue implements Listener {
     private void startConversation(
         Player clicker,
         Entity entity,
-        EntityDialogue dialogue
+        AudienceMode audienceMode,
+        List<SequenceLine> sequenceLines
     ) {
-        List<? extends Player> recipients = dialogue.audienceMode() ==
-            AudienceMode.PLAYER
+        List<? extends Player> recipients = audienceMode == AudienceMode.PLAYER
             ? List.of(clicker)
             : Bukkit.getOnlinePlayers()
                   .stream()
@@ -340,31 +429,31 @@ public final class PvePrologue implements Listener {
             recipientIds.add(recipient.getUniqueId());
         }
         ActiveConversation conversation = new ActiveConversation(
-            entity.getUniqueId(),
-            dialogue.audienceMode(),
+            entity,
+            audienceMode,
             recipientIds
         );
         ACTIVE_CONVERSATIONS.put(entity.getUniqueId(), conversation);
         for (UUID recipientId : recipientIds) {
             PLAYER_CONVERSATIONS.put(recipientId, conversation);
         }
-        scheduleSequenceLine(conversation, dialogue, 0);
+        scheduleSequenceLine(conversation, sequenceLines, 0);
     }
 
     private void scheduleSequenceLine(
         ActiveConversation conversation,
-        EntityDialogue dialogue,
+        List<SequenceLine> sequenceLines,
         int lineIndex
     ) {
         if (!isActive(conversation)) {
             return;
         }
-        if (lineIndex >= dialogue.sequenceLines().size()) {
+        if (lineIndex >= sequenceLines.size()) {
             finishConversation(conversation);
             return;
         }
 
-        SequenceLine line = dialogue.sequenceLines().get(lineIndex);
+        SequenceLine line = sequenceLines.get(lineIndex);
         conversation.task = Bukkit.getScheduler().runTaskLater(
             JavaPlugin.getProvidingPlugin(PvePrologue.class),
             () -> {
@@ -404,11 +493,14 @@ public final class PvePrologue implements Listener {
                     recipient.sendMessage(message);
                     playSound(recipient, line.soundEffect());
                 }
+                for (String command : line.consoleCommands()) {
+                    runConsoleCommand(command);
+                }
 
                 if (line.checkPrompt() == null) {
                     scheduleSequenceLine(
                         conversation,
-                        dialogue,
+                        sequenceLines,
                         lineIndex + 1
                     );
                     return;
@@ -422,10 +514,14 @@ public final class PvePrologue implements Listener {
                         if (!isActive(conversation)) {
                             return;
                         }
-                        runChoiceCommand(clicker, choice.command());
+                        runChoiceCommand(
+                            conversation.commandExecutor,
+                            clicker,
+                            choice.command()
+                        );
                         scheduleSequenceLine(
                             conversation,
-                            dialogue,
+                            sequenceLines,
                             lineIndex + 1
                         );
                     }
@@ -506,7 +602,11 @@ public final class PvePrologue implements Listener {
         conversation.recipients.clear();
     }
 
-    private static void runChoiceCommand(Player player, String command) {
+    private static void runChoiceCommand(
+        Entity commandExecutor,
+        Player player,
+        String command
+    ) {
         if (command.equals("-")) {
             return;
         }
@@ -514,7 +614,21 @@ public final class PvePrologue implements Listener {
         if (playerCommand.startsWith("/")) {
             playerCommand = playerCommand.substring(1);
         }
-        Bukkit.dispatchCommand(player, playerCommand);
+        Bukkit.dispatchCommand(commandExecutor, playerCommand);
+    }
+
+    private static void runConsoleCommand(String command) {
+        String consoleCommand = command.startsWith("/")
+            ? command.substring(1)
+            : command;
+        if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), consoleCommand)) {
+            JavaPlugin.getProvidingPlugin(PvePrologue.class)
+                .getLogger()
+                .warning(
+                    "Could not dispatch a pvesummon sequence command: " +
+                        consoleCommand
+                );
+        }
     }
 
     private static void playSound(Player player, SoundEffect soundEffect) {
@@ -770,13 +884,34 @@ public final class PvePrologue implements Listener {
                 );
             }
             String mode = input.substring(9, modeEnd).toUpperCase(Locale.ROOT);
-            AudienceMode audienceMode = switch (mode) {
+            boolean weightedSequence = mode.startsWith("WEIGHTED_");
+            String audienceModeName = weightedSequence
+                ? mode.substring("WEIGHTED_".length())
+                : mode;
+            AudienceMode audienceMode = switch (audienceModeName) {
                 case "PLAYER" -> AudienceMode.PLAYER;
                 case "PLAYINGPVE" -> AudienceMode.PLAYING_PVE;
                 default -> throw new IllegalArgumentException(
-                    "Sequential mode must be PLAYER or PLAYINGPVE."
+                    "Sequential mode must be PLAYER, PLAYINGPVE, WEIGHTED_PLAYER, or WEIGHTED_PLAYINGPVE."
                 );
             };
+            if (weightedSequence) {
+                List<WeightedSequenceBranch> branches =
+                    parseWeightedSequenceBranches(
+                        input.substring(modeEnd + 1).trim()
+                    );
+                double totalWeight = branches
+                    .stream()
+                    .mapToDouble(WeightedSequenceBranch::weight)
+                    .sum();
+                return new EntityDialogue(
+                    List.of(),
+                    totalWeight,
+                    List.of(),
+                    audienceMode,
+                    branches
+                );
+            }
             List<SequenceLine> sequenceLines = parseSequenceLines(
                 input.substring(modeEnd + 1).trim()
             );
@@ -784,7 +919,8 @@ public final class PvePrologue implements Listener {
                 List.of(),
                 0,
                 sequenceLines,
-                audienceMode
+                audienceMode,
+                List.of()
             );
         }
 
@@ -793,7 +929,71 @@ public final class PvePrologue implements Listener {
             .stream()
             .mapToDouble(DialogueLine::weight)
             .sum();
-        return new EntityDialogue(lines, totalWeight, List.of(), null);
+        return new EntityDialogue(
+            lines,
+            totalWeight,
+            List.of(),
+            null,
+            List.of()
+        );
+    }
+
+    private static boolean hasConsoleCommands(EntityDialogue dialogue) {
+        if (
+            dialogue.sequenceLines()
+                .stream()
+                .anyMatch(line -> !line.consoleCommands().isEmpty())
+        ) {
+            return true;
+        }
+        return dialogue.weightedSequenceBranches()
+            .stream()
+            .flatMap(branch -> branch.lines().stream())
+            .anyMatch(line -> !line.consoleCommands().isEmpty());
+    }
+
+    private static List<WeightedSequenceBranch> parseWeightedSequenceBranches(
+        String input
+    ) {
+        if (input.isEmpty()) {
+            throw new IllegalArgumentException(
+                "Provide at least one weighted sequence branch."
+            );
+        }
+        List<String> branches = splitEscaped(input, ';');
+        List<WeightedSequenceBranch> parsedBranches =
+            new java.util.ArrayList<>(branches.size());
+        for (String branch : branches) {
+            String trimmedBranch = branch.trim();
+            int weightEnd = trimmedBranch.indexOf(':');
+            if (weightEnd <= 0 || weightEnd == trimmedBranch.length() - 1) {
+                throw new IllegalArgumentException(
+                    "Weighted sequence branches must look like <weight>:<sequence-lines>, separated by semicolons."
+                );
+            }
+
+            double weight;
+            try {
+                weight = Double.parseDouble(
+                    trimmedBranch.substring(0, weightEnd)
+                );
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException(
+                    "Weighted sequence branch weights must be numbers greater than 0 and at most 100.",
+                    exception
+                );
+            }
+            if (!Double.isFinite(weight) || weight <= 0 || weight > 100) {
+                throw new IllegalArgumentException(
+                    "Weighted sequence branch weights must be greater than 0 and at most 100."
+                );
+            }
+            List<SequenceLine> lines = parseSequenceLines(
+                trimmedBranch.substring(weightEnd + 1).trim()
+            );
+            parsedBranches.add(new WeightedSequenceBranch(weight, lines));
+        }
+        return List.copyOf(parsedBranches);
     }
 
     private static List<SequenceLine> parseSequenceLines(String input) {
@@ -802,11 +1002,11 @@ public final class PvePrologue implements Listener {
                 "Provide at least one sequential dialogue line."
             );
         }
-        String[] parts = input.split(",", -1);
-        List<SequenceLine> lines = new java.util.ArrayList<>(parts.length);
+        List<String> parts = splitEscaped(input, ',');
+        List<SequenceLine> lines = new java.util.ArrayList<>(parts.size());
         for (String part : parts) {
-            String[] options = part.split("\\|", -1);
-            String main = options[0].trim();
+            List<String> options = splitEscaped(part, '|');
+            String main = options.get(0).trim();
             int colorEnd = main.indexOf('%');
             int styleEnd = colorEnd < 0
                 ? -1
@@ -842,7 +1042,9 @@ public final class PvePrologue implements Listener {
                     exception
                 );
             }
-            String text = main.substring(delayEnd + 1).trim();
+            String text = unescapeDialogueText(
+                main.substring(delayEnd + 1).trim()
+            );
             if (delayTicks < 0 || text.isEmpty()) {
                 throw new IllegalArgumentException(
                     "Sequence line delays must be non-negative and text must not be empty."
@@ -856,8 +1058,9 @@ public final class PvePrologue implements Listener {
             String noCommand = null;
             List<PveDialogue.ChoiceOption> checkOptions =
                 new java.util.ArrayList<>();
-            for (int i = 1; i < options.length; i++) {
-                String option = options[i].trim();
+            List<String> consoleCommands = new java.util.ArrayList<>();
+            for (int i = 1; i < options.size(); i++) {
+                String option = options.get(i).trim();
                 if (option.regionMatches(true, 0, "append=", 0, 7)) {
                     if (appendedLine != null) {
                         throw new IllegalArgumentException(
@@ -865,6 +1068,16 @@ public final class PvePrologue implements Listener {
                         );
                     }
                     appendedLine = parseAppendedLine(option.substring(7));
+                } else if (option.regionMatches(true, 0, "run=", 0, 4)) {
+                    String command = unescapeDialogueText(
+                        option.substring(4).trim()
+                    );
+                    if (command.isEmpty()) {
+                        throw new IllegalArgumentException(
+                            "A run= console command must not be empty."
+                        );
+                    }
+                    consoleCommands.add(command);
                 } else if (option.regionMatches(true, 0, "sound=", 0, 6)) {
                     if (soundEffect != null) {
                         throw new IllegalArgumentException(
@@ -878,7 +1091,9 @@ public final class PvePrologue implements Listener {
                             "Each sequence line can have at most one check option."
                         );
                     }
-                    checkPrompt = option.substring(6).trim();
+                    checkPrompt = unescapeDialogueText(
+                        option.substring(6).trim()
+                    );
                     if (checkPrompt.isEmpty()) {
                         throw new IllegalArgumentException(
                             "A check prompt must not be empty."
@@ -890,7 +1105,9 @@ public final class PvePrologue implements Listener {
                             "Each sequence line can have at most one yes command."
                         );
                     }
-                    yesCommand = option.substring(4).trim();
+                    yesCommand = unescapeDialogueText(
+                        option.substring(4).trim()
+                    );
                     if (yesCommand.isEmpty()) {
                         throw new IllegalArgumentException(
                             "The yes command must not be empty; use - for no action."
@@ -902,7 +1119,9 @@ public final class PvePrologue implements Listener {
                             "Each sequence line can have at most one no command."
                         );
                     }
-                    noCommand = option.substring(3).trim();
+                    noCommand = unescapeDialogueText(
+                        option.substring(3).trim()
+                    );
                     if (noCommand.isEmpty()) {
                         throw new IllegalArgumentException(
                             "The no command must not be empty; use - for no action."
@@ -914,7 +1133,7 @@ public final class PvePrologue implements Listener {
                     );
                 } else {
                     throw new IllegalArgumentException(
-                        "Sequence options must be append=, sound=, check=, yes=, no=, or option=."
+                        "Sequence options must be append=, run=, sound=, check=, yes=, no=, or option=."
                     );
                 }
             }
@@ -959,11 +1178,60 @@ public final class PvePrologue implements Listener {
                     appendedLine,
                     soundEffect,
                     checkPrompt,
-                    List.copyOf(checkOptions)
+                    List.copyOf(checkOptions),
+                    List.copyOf(consoleCommands)
                 )
             );
         }
         return lines;
+    }
+
+    private static List<String> splitEscaped(String input, char delimiter) {
+        List<String> parts = new java.util.ArrayList<>();
+        StringBuilder part = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            char current = input.charAt(i);
+            if (
+                current == '\\' &&
+                i + 1 < input.length() &&
+                isEscapableDialogueCharacter(input.charAt(i + 1))
+            ) {
+                part.append(current).append(input.charAt(++i));
+            } else if (current == delimiter) {
+                parts.add(part.toString());
+                part.setLength(0);
+            } else {
+                part.append(current);
+            }
+        }
+        parts.add(part.toString());
+        return parts;
+    }
+
+    private static boolean isEscapableDialogueCharacter(char character) {
+        return (
+            character == ',' ||
+            character == '|' ||
+            character == ';' ||
+            character == '\\'
+        );
+    }
+
+    private static String unescapeDialogueText(String text) {
+        StringBuilder unescaped = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char current = text.charAt(i);
+            if (
+                current == '\\' &&
+                i + 1 < text.length() &&
+                isEscapableDialogueCharacter(text.charAt(i + 1))
+            ) {
+                unescaped.append(text.charAt(++i));
+            } else {
+                unescaped.append(current);
+            }
+        }
+        return unescaped.toString();
     }
 
     private static PveDialogue.ChoiceOption parseSequenceChoiceOption(
@@ -986,8 +1254,12 @@ public final class PvePrologue implements Listener {
                 "Check choices must look like option=<label>%<color>%<style|NONE>%<command...>."
             );
         }
-        String label = option.substring(0, labelEnd).trim();
-        String command = option.substring(styleEnd + 1).trim();
+        String label = unescapeDialogueText(
+            option.substring(0, labelEnd).trim()
+        );
+        String command = unescapeDialogueText(
+            option.substring(styleEnd + 1).trim()
+        );
         if (label.isEmpty() || command.isEmpty()) {
             throw new IllegalArgumentException(
                 "Check choice labels and commands must not be empty; use - for no action."
@@ -1040,7 +1312,9 @@ public final class PvePrologue implements Listener {
                 "Append options must look like append=<color>%<style>%<text>."
             );
         }
-        String text = input.substring(styleEnd + 1).trim();
+        String text = unescapeDialogueText(
+            input.substring(styleEnd + 1).trim()
+        );
         if (text.isEmpty()) {
             throw new IllegalArgumentException(
                 "Appended dialogue text must not be empty."
@@ -1066,11 +1340,11 @@ public final class PvePrologue implements Listener {
     }
 
     private static List<DialogueLine> parseDialogueLines(String input) {
-        String[] parts = input.split(",", -1);
-        List<DialogueLine> lines = new java.util.ArrayList<>(parts.length);
+        List<String> parts = splitEscaped(input, ',');
+        List<DialogueLine> lines = new java.util.ArrayList<>(parts.size());
         for (String part : parts) {
-            String[] options = part.split("\\|", -1);
-            String definition = options[0].trim();
+            List<String> options = splitEscaped(part, '|');
+            String definition = options.get(0).trim();
             int colorEnd = definition.indexOf('%');
             int styleEnd = colorEnd < 0
                 ? -1
@@ -1106,7 +1380,9 @@ public final class PvePrologue implements Listener {
                     exception
                 );
             }
-            String text = definition.substring(weightEnd + 1).trim();
+            String text = unescapeDialogueText(
+                definition.substring(weightEnd + 1).trim()
+            );
             if (
                 !Double.isFinite(weight) ||
                 weight <= 0 ||
@@ -1118,8 +1394,8 @@ public final class PvePrologue implements Listener {
                 );
             }
             SoundEffect soundEffect = null;
-            for (int i = 1; i < options.length; i++) {
-                String option = options[i].trim();
+            for (int i = 1; i < options.size(); i++) {
+                String option = options.get(i).trim();
                 if (!option.regionMatches(true, 0, "sound=", 0, 6)) {
                     throw new IllegalArgumentException(
                         "Weighted dialogue supports only the optional sound= setting."
@@ -1224,8 +1500,8 @@ public final class PvePrologue implements Listener {
     // One usage string for all bad argument shapes
     private static void sendUsage(CommandSender sender) {
         sender.sendMessage(
-            "Usage: /pvesummon <mob> <x> <y> <z> [<snbt>|-] " +
-                "[<color>%<style>%<weight>%<text>[|sound=<sound|NONE>[%<volume>%<pitch>]],...|sequence=PLAYER <sequence-lines>|sequence=PLAYINGPVE <sequence-lines>]"
+            "Usage: /pvesummon <mob> <x> <y> <z> [--no-push] [<snbt>|-] " +
+                "[<color>%<style>%<weight>%<text>[|sound=<sound|NONE>[%<volume>%<pitch>]],...|sequence=PLAYER <sequence-lines>|sequence=PLAYINGPVE <sequence-lines>|sequence=WEIGHTED_PLAYER <weighted-branches>|sequence=WEIGHTED_PLAYINGPVE <weighted-branches>]"
         );
     }
 }
