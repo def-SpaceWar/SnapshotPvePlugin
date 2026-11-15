@@ -1,15 +1,12 @@
 package com.defspacemine.snapshotpve;
 
-import com.defspacemine.snapshotpvp.lobby.LobbyManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
+
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -20,6 +17,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import com.defspacemine.snapshotpvp.lobby.LobbyManager;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 
 // Main lifecycle and command wiring for the PVE plugin
 public class SnapshotPvePlugin extends JavaPlugin {
@@ -293,7 +296,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
             .collect(Collectors.joining(", "));
     }
 
-    /** PVE players in the sender's lobby, or online PVE players for console */
+        /** PVE players in the sender's world, or online PVE players for console */
     private List<Player> getDialogueTargets(CommandSender sender) {
         World senderWorld = null;
         // Command blocks and minecarts carry a world; console does not
@@ -305,12 +308,10 @@ public class SnapshotPvePlugin extends JavaPlugin {
             default -> {
             }
         }
-        PveLobbyType.PveLobbyInstance lobby =
-            senderWorld == null
-                ? null
-                : PveLobbyType.PveLobbyInstance.forWorld(senderWorld);
-        Collection<? extends Player> candidates =
-            lobby == null ? Bukkit.getOnlinePlayers() : lobby.getPlayers();
+
+        Collection<? extends Player> candidates = senderWorld == null
+            ? Bukkit.getOnlinePlayers()
+            : senderWorld.getPlayers();
 
         // Keep only active PVE participants from that audience
         List<Player> targets = new ArrayList<>();
@@ -475,18 +476,33 @@ public class SnapshotPvePlugin extends JavaPlugin {
         if (targets == null) {
             return true;
         }
-        for (Player player : targets) {
+                for (Player player : targets) {
             // Route to the appropriate shared renderer
             if (includeDefSpaceMine) {
-                PveDialogue.sendDefDelayed(
-                    player,
-                    color,
-                    dialogue,
-                    sound,
-                    volume,
-                    pitch,
-                    delayTicks
-                );
+                if (appendedDialogue != null) {
+                    PveDialogue.sendDefAppendedDelayed(
+                        player,
+                        color,
+                        dialogue,
+                        appendedColor,
+                        appendedStyle,
+                        appendedDialogue,
+                        sound,
+                        volume,
+                        pitch,
+                        delayTicks
+                    );
+                } else {
+                    PveDialogue.sendDefDelayed(
+                        player,
+                        color,
+                        dialogue,
+                        sound,
+                        volume,
+                        pitch,
+                        delayTicks
+                    );
+                }
             } else if (appendedDialogue != null) {
                 PveDialogue.sendAppendedDelayed(
                     player,
@@ -796,16 +812,30 @@ public class SnapshotPvePlugin extends JavaPlugin {
         );
     }
 
-    // Resolve a Minecraft selector and keep player entities only
+        // Resolve a Minecraft selector and keep player entities only
     private Collection<? extends Player> selectPlayerTargets(
         CommandSender sender,
         String targetSelector
     ) {
+        World senderWorld = null;
+        switch (sender) {
+            case BlockCommandSender block -> senderWorld = block
+                .getBlock()
+                .getWorld();
+            case Entity entity -> senderWorld = entity.getWorld();
+            default -> {
+            }
+        }
+        final World filterWorld = senderWorld;
+
         try {
             return Bukkit.selectEntities(sender, targetSelector)
                 .stream()
                 .filter(Player.class::isInstance)
                 .map(Player.class::cast)
+                .filter(player ->
+                    filterWorld == null || player.getWorld().equals(filterWorld)
+                )
                 .toList();
         } catch (IllegalArgumentException exception) {
             sender.sendMessage(

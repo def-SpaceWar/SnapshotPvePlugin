@@ -9,16 +9,18 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
+
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.Bukkit;
-import org.bukkit.Sound;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 
 // Shared chat and clickable-choice bits for PVE
 public final class PveDialogue {
@@ -163,6 +165,51 @@ public final class PveDialogue {
         if (appendedStyle != null) {
             appended = appended.decorate(appendedStyle);
         }
+        return sendComponentDelayed(
+            player,
+            message.append(appended),
+            sound,
+            volume,
+            pitch,
+            delayTicks
+        );
+    }
+
+    // Prefixed speaker line with appended text support
+    public static BukkitTask sendDefAppendedDelayed(
+        Player player,
+        TextColor color,
+        String dialogue,
+        TextColor appendedColor,
+        TextDecoration appendedStyle,
+        String appendedDialogue,
+        Sound sound,
+        float volume,
+        float pitch,
+        long delayTicks
+    ) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(color, "color");
+        Objects.requireNonNull(dialogue, "dialogue");
+        Objects.requireNonNull(appendedColor, "appendedColor");
+        Objects.requireNonNull(appendedDialogue, "appendedDialogue");
+
+        Component message = Component.empty()
+            .append(Component.text("<", NamedTextColor.RED))
+            .append(
+                Component.text("defSpaceMine", NamedTextColor.RED).decorate(
+                    TextDecoration.OBFUSCATED
+                )
+            )
+            .append(Component.text("> ", NamedTextColor.RED))
+            .append(Component.text(dialogue, color))
+            .append(Component.space());
+
+        Component appended = Component.text(appendedDialogue, appendedColor);
+        if (appendedStyle != null) {
+            appended = appended.decorate(appendedStyle);
+        }
+
         return sendComponentDelayed(
             player,
             message.append(appended),
