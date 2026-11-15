@@ -73,8 +73,9 @@ entries, the default Yes/No buttons have no callbacks.
 For colored PVE dialogue, command blocks can call `/pveprologuedialogue` or the
 `/pvedefdialogue` variant, which adds the defSpaceMine speaker prefix. Add
 `append=<color> <style> <text...>` to give the appended text its own color and style. Both commands
-also accept a trailing `run=<console-command...>` parameter. It runs once as console after the line
-is sent and requires `snapshotpve.summon.console` (default: operators).
+also accept a trailing `run=<console-command...>` parameter. It runs once as console after the
+delay, even if no dialogue recipient is online, and requires `snapshotpve.summon.console` (default:
+operators).
 
 ```text
 /pveprologuedialogue 0 GOLD NONE 1 1 The journey begins. target=@a[tag=playingPVE] run=setblock -346 65 -183 minecraft:redstone_block

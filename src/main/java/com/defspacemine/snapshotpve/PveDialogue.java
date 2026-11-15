@@ -352,11 +352,11 @@ public final class PveDialogue {
         float volume,
         float pitch,
         long delayTicks,
-        Runnable afterSend
+        Runnable afterDelay
     ) {
         Objects.requireNonNull(players, "players");
         Objects.requireNonNull(message, "message");
-        Objects.requireNonNull(afterSend, "afterSend");
+        Objects.requireNonNull(afterDelay, "afterDelay");
         if (delayTicks < 0) {
             throw new IllegalArgumentException("delayTicks cannot be negative");
         }
@@ -365,7 +365,6 @@ public final class PveDialogue {
         return Bukkit.getScheduler().runTaskLater(
             SnapshotPvePlugin.getInstance(),
             () -> {
-                boolean sent = false;
                 for (Player player : recipients) {
                     if (player.isOnline()) {
                         player.sendMessage(message);
@@ -377,12 +376,9 @@ public final class PveDialogue {
                                 pitch
                             );
                         }
-                        sent = true;
                     }
                 }
-                if (sent) {
-                    afterSend.run();
-                }
+                afterDelay.run();
             },
             delayTicks
         );

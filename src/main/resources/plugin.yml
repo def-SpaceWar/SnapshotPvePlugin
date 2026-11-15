@@ -24,7 +24,7 @@ commands:
       Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens target=@p
       Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens append=GOLD BOLD and the path is clear target=@a[tag=joiningPVE]
       Example: /pveprologuedialogue 40 RED NONE 1 1 The door opens run=setblock -346 65 -183 minecraft:redstone_block
-      Without target=, recipients are players tagged playingPVE or spectatingPVE. Selectors resolve in the command sender's context and may include @a, @p, @r, or @e with tag filters. run= executes once as console after the dialogue is sent and requires snapshotpve.summon.console.
+      Without target=, recipients are players tagged playingPVE or spectatingPVE. Selectors resolve in the command sender's context and may include @a, @p, @r, or @e with tag filters. run= executes once as console after the delay, even if no dialogue recipient is online, and requires snapshotpve.summon.console.
   pvedefdialogue:
     description: Send colored PVE dialogue with the defSpaceMine prefix, optional appended text, and an optional console command.
     usage: >-
@@ -32,7 +32,7 @@ commands:
       <message...> [append=<color> <style|NONE> <text...>] [run=<console-command...>]
       Example: /pveDefDialogue 40 RED NONE 1 1 The door opens append=GOLD BOLD and the path is clear
       Example: /pveDefDialogue 40 RED NONE 1 1 The door opens run=setblock -346 65 -183 minecraft:redstone_block
-      run= executes once as console after the dialogue is sent and requires snapshotpve.summon.console.
+      run= executes once as console after the delay, even if no dialogue recipient is online, and requires snapshotpve.summon.console.
   pvesummon:
     description: Summon a mob with weighted or sequential dialogue for player interactions.
     usage: >-
