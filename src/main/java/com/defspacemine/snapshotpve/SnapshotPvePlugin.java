@@ -98,6 +98,16 @@ public class SnapshotPvePlugin extends JavaPlugin {
         ).setExecutor((sender, command, label, args) ->
             prologue.summon(sender, args)
         );
+        Objects.requireNonNull(
+            getCommand("pveparticlerectangularspiral"),
+            "pveparticlerectangularspiral command is missing from the plugin descriptor"
+        ).setExecutor((sender, command, label, args) ->
+            prologue.particleRectangularSpiral(sender, args)
+        );
+        Objects.requireNonNull(
+            getCommand("pvewait"),
+            "pvewait command is missing from the plugin descriptor"
+        ).setExecutor(new PveWait(this));
         LobbyManager.registeredLobbies.add(new PveLobbyType());
     }
 
@@ -514,7 +524,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
                 volume,
                 pitch,
                 delayTicks,
-                () -> dispatchDialogueCommand(commandToRun)
+                () -> dispatchDialogueCommand(sender, commandToRun)
             );
         } else {
             for (Player player : targets) {
@@ -574,14 +584,19 @@ public class SnapshotPvePlugin extends JavaPlugin {
         return true;
     }
 
-    private void dispatchDialogueCommand(String command) {
-        String consoleCommand = command.startsWith("/")
+    private void dispatchDialogueCommand(
+        CommandSender sender,
+        String command
+    ) {
+        String commandToDispatch = command.startsWith("/")
             ? command.substring(1)
             : command;
-        if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), consoleCommand)) {
+        CommandSender commandSender = sender instanceof BlockCommandSender
+            ? sender
+            : Bukkit.getConsoleSender();
+        if (!Bukkit.dispatchCommand(commandSender, commandToDispatch)) {
             getLogger().warning(
-                "Could not dispatch a dialogue console command: " +
-                    consoleCommand
+                "Could not dispatch a dialogue command: " + commandToDispatch
             );
         }
     }

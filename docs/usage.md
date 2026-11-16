@@ -1,5 +1,54 @@
 # Extending the Example Code
 
+### Delayed commands and Minecraft functions
+
+```text
+/pvewait <delayTicks> <function|#function_tag>
+/pvewait <delayTicks> run <command...>
+/pvewait 40 my_datapack:open_gate
+/pvewait 100 #my_datapack:wave_finished
+/pvewait 40 run say The gate is opening!
+/pvewait 40 run /setblock ~ ~1 ~ minecraft:redstone_block
+```
+
+Runs a Minecraft datapack function, function tag, or command once after the specified number of
+ticks. Use `run` before a regular command; a leading slash is optional. It uses the original
+command sender rather than elevating to console, so the sender must also have permission to run
+the requested command. The delay must be a whole number from 0 to 2,147,483,647; zero runs on the
+next scheduler tick. Pending work is cancelled if the plugin is disabled or the server stops.
+Requires `snapshotpve.wait` (operators by default).
+
+### Rectangular particle spirals
+
+```text
+/pveparticlerectangularspiral <particle> <x> <y> <z> <width> <length> <horizontalStep> <yStep> <height> <intervalTicks> [sound|NONE] [soundTargetSelector] [color=RRGGBB] [angle=degrees]
+/pveparticlerectangularspiral minecraft:flame ~ ~ ~ 4 6 0.25 0.1 15 1
+/pveparticlerectangularspiral flame 100 64 -30 4 6 0.25 0.1 15 2 BLOCK_NOTE_BLOCK_PLING @a[tag=playingPVE]
+/pveparticlerectangularspiral dust ~ ~ ~ 4 6 0.25 0.1 15 2 color=FF6600
+/pveparticlerectangularspiral dust ~ ~ ~ 4 6 0.25 0.1 15 2 color=FF6600 angle=5
+```
+
+Coordinates specify the center of the base in the sender's world, and support `~` offsets.
+Width is along X and length along Z. Each interval emits a complete ring starting at a randomly
+chosen corner, with particles spaced no more than `horizontalStep` blocks apart along each side.
+The first ring appears one `yStep` above the base, and subsequent rings rise by `yStep`.
+Particles are given upward velocity, though some Minecraft particle types ignore it. Height is
+relative to the base: the number of rings is `ceil(height / yStep)`, with the last ring capped
+at the requested height. For example, height 15 and yStep 0.1 produce 150 rings. The interval
+is in ticks, at least 1. Dimensions and steps must be positive finite numbers. A ring may contain
+at most 1,024 particles; increase `horizontalStep` if the command rejects the ring size.
+Optional `angle=` rotates each successive ring around the center by that many degrees per height
+step; the first ring is unrotated. For example, `angle=5` turns the second ring 5 degrees and the
+third 10 degrees. Negative values reverse the rotation; omitting it leaves the rings unrotated.
+
+Particle names are Bukkit names or namespaced keys. Dust requires an initial six-digit RGB hex
+`color=RRGGBB`; its rings fade from that color to white over the height of the effect. A single
+ring uses the initial color. Other particles requiring extra data (such as block particles) are
+not supported. An optional sound plays once per ring with volume and pitch 1. Without a selector,
+it is audible normally to players in the world; a Minecraft
+selector limits it to matching players resolved when the command runs. The command requires
+`snapshotpve.particlespiral` (operators by default).
+
 ### Summoned mob dialogue and prologue sequences
 
 Summon any spawnable entity type in the executing player's, entity's, or command block's world.
@@ -73,9 +122,10 @@ entries, the default Yes/No buttons have no callbacks.
 For colored PVE dialogue, command blocks can call `/pveprologuedialogue` or the
 `/pvedefdialogue` variant, which adds the defSpaceMine speaker prefix. Add
 `append=<color> <style> <text...>` to give the appended text its own color and style. Both commands
-also accept a trailing `run=<console-command...>` parameter. It runs once as console after the
-delay, even if no dialogue recipient is online, and requires `snapshotpve.summon.console` (default:
-operators).
+also accept a trailing `run=<console-command...>` parameter. It runs once after the delay, even if
+no dialogue recipient is online, and requires `snapshotpve.summon.console` (default: operators).
+When invoked from a command block, the command runs as that block to preserve its world context;
+other senders run it as console.
 
 ```text
 /pveprologuedialogue 0 GOLD NONE 1 1 The journey begins. target=@a[tag=playingPVE] run=setblock -346 65 -183 minecraft:redstone_block

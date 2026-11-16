@@ -1,5 +1,7 @@
 package com.defspacemine.snapshotpve;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -11,10 +13,13 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Particle;
 import org.bukkit.Registry;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.command.BlockCommandSender;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -29,6 +34,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -115,6 +121,297 @@ public final class PvePrologue implements Listener {
 
     // Hidden incrementing counter so every summon gets a distinct marker tag
     private static final AtomicLong MARKER_COUNTER = new AtomicLong();
+    private static final int MAX_SPIRAL_RING_PARTICLES = 1024;
+    private static final double SPIRAL_PARTICLE_SPEED = 0.15;
+
+    public boolean particleRectangularSpiral(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("snapshotpve.particlespiral")) {
+            sender.sendMessage("You do not have permission to create particle spirals.");
+            return true;
+        }
+        if (args.length < 10 || args.length > 14) {
+            sender.sendMessage(
+                "Usage: /pveparticlerectangularspiral <particle> <x> <y> <z> " +
+                "<width> <length> <horizontalStep> <yStep> <height> <intervalTicks> " +
+                "[sound|NONE] [soundTargetSelector] [color=RRGGBB] [angle=degrees]"
+            );
+            return true;
+        }
+
+        Location origin = getSenderLocation(sender);
+        if (origin == null || origin.getWorld() == null) {
+            sender.sendMessage("Run this command as a player, entity, or command block so its world is known.");
+            return true;
+        }
+
+        try {
+            String particleName = args[0].toLowerCase(Locale.ROOT);
+            NamespacedKey key = NamespacedKey.fromString(particleName);
+            Particle particle = key == null ? null : Registry.PARTICLE_TYPE.get(key);
+            if (particle == null) {
+                throw new IllegalArgumentException("Unknown particle: " + args[0]);
+            }
+            if (particle.getDataType() != Void.class && particle != Particle.DUST) {
+                throw new IllegalArgumentException(
+                    "This particle requires extra data and is not supported: " + args[0]
+                );
+            }
+            Location center = new Location(
+                origin.getWorld(),
+                parseCoordinate(args[1], "x", origin.getX()),
+                parseCoordinate(args[2], "y", origin.getY()),
+                parseCoordinate(args[3], "z", origin.getZ())
+            );
+            double width = positiveFinite(args[4], "width");
+            double length = positiveFinite(args[5], "length");
+            double horizontalStep = positiveFinite(args[6], "horizontalStep");
+            double yStep = positiveFinite(args[7], "yStep");
+            double height = positiveFinite(args[8], "height");
+            double perimeter = 2 * width + 2 * length;
+            if (!Double.isFinite(perimeter) ||
+                !Double.isFinite(center.getX() - width / 2) ||
+                !Double.isFinite(center.getX() + width / 2) ||
+                !Double.isFinite(center.getZ() - length / 2) ||
+                !Double.isFinite(center.getZ() + length / 2) ||
+                !Double.isFinite(center.getY() + height)) {
+                throw new IllegalArgumentException("Spiral dimensions and coordinates are too large.");
+            }
+            int[] sideParticles = spiralSideParticles(width, length, horizontalStep);
+            int steps = spiralStepCount(args[8], args[7]);
+            long interval;
+            try {
+                interval = Long.parseLong(args[9]);
+                if (interval < 1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("intervalTicks must be a whole number of at least 1.");
+            }
+            String soundArgument = null;
+            String selector = null;
+            Color initialColor = null;
+            Double angle = null;
+            for (int i = 10; i < args.length; i++) {
+                if (args[i].regionMatches(true, 0, "color=", 0, 6)) {
+                    if (initialColor != null) {
+                        throw new IllegalArgumentException("Specify color= only once.");
+                    }
+                    initialColor = parseSpiralColor(args[i].substring(6));
+                } else if (args[i].regionMatches(true, 0, "angle=", 0, 6)) {
+                    if (angle != null) {
+                        throw new IllegalArgumentException("Specify angle= only once.");
+                    }
+                    angle = parseSpiralAngle(args[i].substring(6));
+                } else if (soundArgument == null) {
+                    soundArgument = args[i];
+                } else if (selector == null) {
+                    selector = args[i];
+                } else {
+                    throw new IllegalArgumentException("Too many sound arguments.");
+                }
+            }
+            final double anglePerRing = angle == null ? 0 : angle % 360;
+            if (anglePerRing != 0) {
+                double radius = Math.hypot(width / 2, length / 2);
+                if (!Double.isFinite(center.getX() - radius) ||
+                    !Double.isFinite(center.getX() + radius) ||
+                    !Double.isFinite(center.getZ() - radius) ||
+                    !Double.isFinite(center.getZ() + radius)) {
+                    throw new IllegalArgumentException("Rotated spiral coordinates are too large.");
+                }
+            }
+            if (particle == Particle.DUST && initialColor == null) {
+                throw new IllegalArgumentException("Dust requires an initial color=RRGGBB.");
+            }
+            if (particle != Particle.DUST && initialColor != null) {
+                throw new IllegalArgumentException("color= is only supported for dust.");
+            }
+            Sound sound = soundArgument == null ? null : SnapshotPvePlugin.parseSound(soundArgument);
+            if (selector != null && sound == null) {
+                throw new IllegalArgumentException("A sound target requires a sound.");
+            }
+            List<UUID> soundTargets = null;
+            if (selector != null) {
+                if (!selector.startsWith("@")) {
+                    throw new IllegalArgumentException("soundTargetSelector must be a Minecraft selector.");
+                }
+                soundTargets = Bukkit.selectEntities(sender, selector).stream()
+                    .filter(Player.class::isInstance)
+                    .map(Entity::getUniqueId)
+                    .toList();
+            }
+            final List<UUID> recipients = soundTargets;
+            final World world = center.getWorld();
+            final Color dustColor = initialColor;
+            final int startCorner = ThreadLocalRandom.current().nextInt(4);
+            new BukkitRunnable() {
+                private int index;
+
+                @Override
+                public void run() {
+                    double y = center.getY() + spiralHeight(index, yStep, height);
+                    double radians = spiralRotationRadians(anglePerRing, index);
+                    double cosine = Math.cos(radians);
+                    double sine = Math.sin(radians);
+                    Object data = dustColor == null ? null : new Particle.DustOptions(
+                        spiralDustColor(dustColor, index, steps), 1.0f
+                    );
+                    Location point = null;
+                    for (int side = 0; side < 4; side++) {
+                        int corner = (startCorner + side) % 4;
+                        double sideLength = corner % 2 == 0 ? width : length;
+                        int count = sideParticles[corner % 2];
+                        double cornerDistance = spiralCornerDistance(width, length, corner);
+                        for (int i = 0; i < count; i++) {
+                            double ringDistance = advanceSpiralDistance(
+                                cornerDistance, sideLength * ((double) i / count), perimeter
+                            );
+                            double[] offset = rectangularSpiralOffset(width, length, ringDistance);
+                            offset = rotateSpiralOffset(offset, cosine, sine);
+                            Location particleLocation = new Location(
+                                world, center.getX() + offset[0], y, center.getZ() + offset[1]
+                            );
+                            if (point == null) {
+                                point = particleLocation;
+                            }
+                            world.spawnParticle(
+                                particle, particleLocation, 0, 0, 1, 0, SPIRAL_PARTICLE_SPEED, data
+                            );
+                        }
+                    }
+                    if (sound != null) {
+                        if (recipients == null) {
+                            world.playSound(point, sound, 1, 1);
+                        } else {
+                            for (UUID id : recipients) {
+                                Player player = Bukkit.getPlayer(id);
+                                if (player != null && player.getWorld().equals(world)) {
+                                    player.playSound(point, sound, 1, 1);
+                                }
+                            }
+                        }
+                    }
+                    if (++index >= steps) {
+                        cancel();
+                        return;
+                    }
+                }
+            }.runTaskTimer(JavaPlugin.getProvidingPlugin(PvePrologue.class), 0L, interval);
+        } catch (IllegalArgumentException exception) {
+            sender.sendMessage(Component.text(exception.getMessage(), NamedTextColor.RED));
+        }
+        return true;
+    }
+
+    private static double positiveFinite(String value, String name) {
+        try {
+            double parsed = Double.parseDouble(value);
+            if (Double.isFinite(parsed) && parsed > 0) {
+                return parsed;
+            }
+        } catch (NumberFormatException exception) {
+            // Report the same validation message for all invalid values.
+        }
+        throw new IllegalArgumentException(name + " must be a finite number greater than zero.");
+    }
+
+    static int[] spiralSideParticles(double width, double length, double horizontalStep) {
+        double widthCount = Math.max(1, Math.ceil(width / horizontalStep));
+        double lengthCount = Math.max(1, Math.ceil(length / horizontalStep));
+        if (2 * widthCount + 2 * lengthCount > MAX_SPIRAL_RING_PARTICLES) {
+            throw new IllegalArgumentException(
+                "horizontalStep is too small; each ring may contain at most " +
+                    MAX_SPIRAL_RING_PARTICLES + " particles."
+            );
+        }
+        return new int[] {(int) widthCount, (int) lengthCount};
+    }
+
+    static double spiralCornerDistance(double width, double length, int corner) {
+        return switch (corner) {
+            case 0 -> 0;
+            case 1 -> width;
+            case 2 -> width + length;
+            case 3 -> 2 * width + length;
+            default -> throw new IllegalArgumentException("Invalid rectangle corner.");
+        };
+    }
+
+    private static Color parseSpiralColor(String input) {
+        if (!input.matches("(?i)[0-9a-f]{6}")) {
+            throw new IllegalArgumentException("color= must be a six-digit RGB hex color, such as color=FF6600.");
+        }
+        return Color.fromRGB(Integer.parseInt(input, 16));
+    }
+
+    static double parseSpiralAngle(String input) {
+        try {
+            double angle = Double.parseDouble(input);
+            if (Double.isFinite(angle)) {
+                return angle;
+            }
+        } catch (NumberFormatException exception) {
+            // Report the same validation message for all invalid values.
+        }
+        throw new IllegalArgumentException("angle= must be a finite number of degrees.");
+    }
+
+    static double[] rotateSpiralOffset(double[] offset, double cosine, double sine) {
+        return new double[] {
+            offset[0] * cosine - offset[1] * sine,
+            offset[0] * sine + offset[1] * cosine
+        };
+    }
+
+    static double spiralRotationRadians(double anglePerRing, int index) {
+        return Math.toRadians(((anglePerRing % 360) * index) % 360);
+    }
+
+    static Color spiralDustColor(Color start, int index, int steps) {
+        double progress = steps == 1 ? 0 : (double) index / (steps - 1);
+        return Color.fromRGB(
+            (int) Math.round(start.getRed() + (255 - start.getRed()) * progress),
+            (int) Math.round(start.getGreen() + (255 - start.getGreen()) * progress),
+            (int) Math.round(start.getBlue() + (255 - start.getBlue()) * progress)
+        );
+    }
+
+    static int spiralStepCount(String height, String yStep) {
+        try {
+            return new BigDecimal(height)
+                .divide(new BigDecimal(yStep), 0, RoundingMode.CEILING)
+                .intValueExact();
+        } catch (ArithmeticException | NumberFormatException exception) {
+            throw new IllegalArgumentException("The number of particle steps is too large.", exception);
+        }
+    }
+
+    static double[] rectangularSpiralOffset(double width, double length, double distance) {
+        double x = -width / 2;
+        double z = -length / 2;
+        if (distance < width) {
+            return new double[] {x + distance, z};
+        }
+        distance -= width;
+        if (distance < length) {
+            return new double[] {x + width, z + distance};
+        }
+        distance -= length;
+        if (distance < width) {
+            return new double[] {x + width - distance, z + length};
+        }
+        return new double[] {x, z + length - (distance - width)};
+    }
+
+    static double advanceSpiralDistance(double distance, double advance, double perimeter) {
+        return distance >= perimeter - advance
+            ? distance - (perimeter - advance)
+            : distance + advance;
+    }
+
+    static double spiralHeight(int index, double yStep, double height) {
+        return Math.min(height, (index + 1.0) * yStep);
+    }
 
     // Validate the request, let vanilla handle SNBT, then attach the dialogue
     public boolean summon(CommandSender sender, String[] args) {
