@@ -99,6 +99,12 @@ public class SnapshotPvePlugin extends JavaPlugin {
             prologue.summon(sender, args)
         );
         Objects.requireNonNull(
+            getCommand("pvesummonuniversal"),
+            "pvesummonuniversal command is missing from the plugin descriptor"
+        ).setExecutor((sender, command, label, args) ->
+            prologue.summon(sender, args)
+        );
+        Objects.requireNonNull(
             getCommand("pveparticlerectangularspiral"),
             "pveparticlerectangularspiral command is missing from the plugin descriptor"
         ).setExecutor((sender, command, label, args) ->
@@ -108,6 +114,10 @@ public class SnapshotPvePlugin extends JavaPlugin {
             getCommand("pvewait"),
             "pvewait command is missing from the plugin descriptor"
         ).setExecutor(new PveWait(this));
+        Objects.requireNonNull(
+            getCommand("pveexecute"),
+            "pveexecute command is missing from the plugin descriptor"
+        ).setExecutor(new PveExecute());
         LobbyManager.registeredLobbies.add(new PveLobbyType());
     }
 

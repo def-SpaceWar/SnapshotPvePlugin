@@ -920,7 +920,11 @@ public final class PvePrologue implements Listener {
             return;
         }
         String playerCommand = command.replace("%player%", player.getName());
-        runEntityCommand(commandExecutor, playerCommand);
+            // Run as the player who made the choice
+            String baseCommand = playerCommand.startsWith("/")
+                ? playerCommand.substring(1)
+                : playerCommand;
+            player.performCommand(baseCommand);
     }
 
     private static void runEntityCommand(Entity entity, String command) {

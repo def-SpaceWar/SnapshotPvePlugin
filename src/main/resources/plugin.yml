@@ -9,6 +9,10 @@ commands:
     description: Run a function or command after a delay.
     usage: /pvewait <delayTicks> <function|#function_tag> OR /pvewait <delayTicks> run <command...>
     permission: snapshotpve.wait
+  pveexecute:
+    description: Execute a command across PVE lobbies with optional filtering.
+    usage: /pveexecute [if|unless] [inLobby=true|false] [@selector] run <command...>
+    permission: snapshotpve.execute
   pveparticlerectangularspiral:
     description: Create an ascending rectangular particle spiral.
     usage: /pveparticlerectangularspiral <particle> <x> <y> <z> <width> <length> <horizontalStep> <yStep> <height> <intervalTicks> [sound|NONE] [soundTargetSelector] [color=RRGGBB] [angle=degrees]
@@ -52,6 +56,12 @@ commands:
       run= commands execute as console and require snapshotpve.summon.console.
       Place --no-push immediately after the coordinates to prevent a living entity from being pushed.
     permission: snapshotpve.summon
+  pvesummonuniversal:
+    description: Summon a mob with weighted or sequential dialogue outside PVE lobbies.
+    usage: >-
+      /pvesummonuniversal <mob> <x> <y> <z> [--no-push] [<snbt>|-]
+      [<color>%<style>%<weight>%<text>[|sound=<sound|NONE>[%<volume>%<pitch>]],...|sequence=PLAYER <sequence-lines>|sequence=PLAYINGPVE <sequence-lines>|sequence=WEIGHTED_PLAYER <weighted-branches>|sequence=WEIGHTED_PLAYINGPVE <weighted-branches>]
+    permission: snapshotpve.summon
   setpvelevel:
     description: Set and persist the level tracked for the current PVE lobby instance.
     usage: /setPveLevel <level 1-20> [pveWorld]
@@ -67,6 +77,9 @@ commands:
 permissions:
   snapshotpve.wait:
     description: Allows scheduling commands and Minecraft functions.
+    default: op
+  snapshotpve.execute:
+    description: Allows executing commands across PVE lobbies.
     default: op
   snapshotpve.particlespiral:
     description: Allows creating rectangular particle spirals.
