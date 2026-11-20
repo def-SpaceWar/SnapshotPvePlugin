@@ -8,12 +8,16 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.logging.Level;
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.command.Command;
+import org.bukkit.command.CommandException;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
@@ -24,6 +28,11 @@ import net.kyori.adventure.text.format.NamedTextColor;
 public class PveExecute implements CommandExecutor {
 
     private static final Pattern TAG_FILTER_PATTERN = Pattern.compile("tag=([\\w]+)");
+    private final Plugin plugin;
+
+    PveExecute(Plugin plugin) {
+        this.plugin = plugin;
+    }
 
     @Override
     public boolean onCommand(
@@ -32,6 +41,9 @@ public class PveExecute implements CommandExecutor {
         String label,
         String[] args
     ) {
+        if (args.length >= 2 && args[1].regionMatches(true, 0, "tag=", 0, 4)) {
+            return executeTagCondition(sender, args);
+        }
         if (args.length < 2) {
             sender.sendMessage("Usage: /pveexecute [if|unless] [inLobby=true|false] [@selector] run <command...>");
             return true;
@@ -109,6 +121,50 @@ public class PveExecute implements CommandExecutor {
                 NamedTextColor.GREEN
             )
         );
+        return true;
+    }
+
+    private boolean executeTagCondition(CommandSender sender, String[] args) {
+        if (
+            args.length < 4 ||
+            (!args[0].equalsIgnoreCase("if") && !args[0].equalsIgnoreCase("unless")) ||
+            !args[2].equalsIgnoreCase("run")
+        ) {
+            sender.sendMessage("Usage: /pveexecute <if|unless> tag=<scoreboard-tag> run <command...>");
+            return true;
+        }
+        String tag = args[1].substring(4);
+        String command = String.join(" ", Arrays.copyOfRange(args, 3, args.length)).trim();
+        if (command.startsWith("/")) {
+            command = command.substring(1);
+        }
+        if (tag.isBlank() || command.isBlank() || Character.isWhitespace(command.charAt(0))) {
+            sender.sendMessage("Provide a non-empty scoreboard tag and command.");
+            return true;
+        }
+        boolean found = false;
+        for (World world : plugin.getServer().getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity.getScoreboardTags().contains(tag)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (found == args[0].equalsIgnoreCase("if")) {
+            try {
+                if (!plugin.getServer().dispatchCommand(sender, command)) {
+                    sender.sendMessage("Could not run command: " + command);
+                    plugin.getLogger().warning("Could not dispatch " + command);
+                }
+            } catch (CommandException exception) {
+                sender.sendMessage("Could not run command: " + command);
+                plugin.getLogger().log(Level.WARNING, "Could not dispatch " + command, exception);
+            }
+        }
         return true;
     }
 

@@ -18,6 +18,21 @@ the requested command. The delay must be a whole number from 0 to 2,147,483,647;
 next scheduler tick. Pending work is cancelled if the plugin is disabled or the server stops.
 Requires `snapshotpve.wait` (operators by default).
 
+### Execute based on an entity tag
+
+```text
+/pveexecute if tag=playingPVE run execute if block -247 57 -72 minecraft:crimson_button run fill -247 57 -72 -247 57 -72 air replace minecraft:crimson_button
+/pveexecute unless tag=playingPVE run setblock -247 57 -72 minecraft:crimson_button[facing=east]
+```
+
+`if tag=<scoreboard-tag>` checks entities in all loaded worlds, including outside PVE lobbies.
+`if` dispatches the command after `run` once if at least one entity matches; `unless` dispatches
+it once if none match. It runs as the original sender, not as a matching entity. In a command
+block it uses that block's world and position; the sender must have permission to run the nested
+command. The tag check repeats on every invocation. In a repeating command block, the `unless`
+example will attempt `setblock` on every tick while no entity matches; it is not a one-shot trigger.
+Requires `snapshotpve.execute`.
+
 ### Rectangular particle spirals
 
 ```text

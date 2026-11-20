@@ -6,6 +6,10 @@ author: defSpaceMine
 description: The SnapshotPve Plugin!
 
 commands:
+  pveexecute:
+    description: Execute a command with optional PVE filtering.
+    usage: /pveexecute <if|unless> tag=<scoreboard-tag> run <command...> OR /pveexecute [if|unless] [inLobby=true|false] [@selector] run <command...>
+    permission: snapshotpve.execute
   pvewait:
     description: Run a function or command after a delay.
     usage: /pvewait <delayTicks> <function|#function_tag> OR /pvewait <delayTicks> run <command...>
@@ -66,6 +70,9 @@ commands:
     usage: /setpvepvp <true|false>
 
 permissions:
+  snapshotpve.execute:
+    description: Allows executing commands with PVE filtering.
+    default: op
   snapshotpve.wait:
     description: Allows scheduling commands and Minecraft functions.
     default: op

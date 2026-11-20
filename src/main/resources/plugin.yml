@@ -11,7 +11,7 @@ commands:
     permission: snapshotpve.wait
   pveexecute:
     description: Execute a command across PVE lobbies with optional filtering.
-    usage: /pveexecute [if|unless] [inLobby=true|false] [@selector] run <command...>
+    usage: /pveexecute <if|unless> tag=<scoreboard-tag> run <command...> OR /pveexecute [if|unless] [inLobby=true|false] [@selector] run <command...>
     permission: snapshotpve.execute
   pveparticlerectangularspiral:
     description: Create an ascending rectangular particle spiral.

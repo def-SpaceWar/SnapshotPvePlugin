@@ -117,7 +117,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
         Objects.requireNonNull(
             getCommand("pveexecute"),
             "pveexecute command is missing from the plugin descriptor"
-        ).setExecutor(new PveExecute());
+        ).setExecutor(new PveExecute(this));
         LobbyManager.registeredLobbies.add(new PveLobbyType());
     }
 
