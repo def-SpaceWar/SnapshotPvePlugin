@@ -61,6 +61,10 @@ repositories {
     }
 
     maven {
+        url = uri("https://repo.codemc.io/repository/maven-releases/")
+    }
+
+    maven {
         url = uri("https://repo.papermc.io/repository/maven-public/")
     }
 
@@ -74,6 +78,7 @@ val mockitoAgent = configurations.create("mockitoAgent")
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.132-stable")
     compileOnly(files("libs/SnapshotPvpPlugin.jar"))
+    compileOnly("com.github.retrooper:packetevents-spigot:2.14.0")
     implementation(platform("com.intellectualsites.bom:bom-newest:1.56"))
     compileOnly("com.fastasyncworldedit:FastAsyncWorldEdit-Core")
     compileOnly("com.fastasyncworldedit:FastAsyncWorldEdit-Bukkit")

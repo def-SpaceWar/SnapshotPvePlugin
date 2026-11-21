@@ -4,7 +4,7 @@ This repository is a **PaperMC/Spigot Minecraft plugin template**. Users fork or
 
 **Entry point**: `ExamplePlugin extends JavaPlugin`. Bukkit/Paper calls `onEnable()` and `onDisable()` during the plugin lifecycle. In `plugin.yml`, `${PACKAGE}.${NAME}` identifies the main class. The `processResources` task fills these placeholders at build time from `group` in `build.gradle.kts` and `rootProject.name` in `settings.gradle.kts`.
 
-**JAR packaging**: The standard `jar` task is disabled, and `shadowJar` is the sole output. It shades CommandAPI and relocates it to `<group>.commandapi`. CommandAPI is excluded from `minimize()` because it loads classes through reflection. `assemble` depends on `shadowJar`.
+**JAR packaging**: The standard `jar` task is disabled, and `shadowJar` is the sole output. PacketEvents is a `compileOnly` API dependency and is declared as a required server plugin in `paper-plugin.yaml`; the server must install PacketEvents separately. `assemble` depends on `shadowJar`.
 
 **cw-commons dependency**: [cw-commons](https://github.com/CrimsonWarpedcraft/cw-commons) provides `Command`/`BaseCommand` for command registration, `Config`/`BukkitConfigManagerBuilder` for YAML loading and Jakarta validation, and `BukkitDataStoreBuilder`/`Repository`/`PlayerDataManager` for persistent player data. These classes are not defined locally. The project consumes cw-commons from JitPack as `com.github.CrimsonWarpedcraft:cw-commons`. `build.gradle.kts` pins a tagged release, such as `v0.3.0`, instead of the unstable `main-SNAPSHOT`. Update that tag deliberately.
 

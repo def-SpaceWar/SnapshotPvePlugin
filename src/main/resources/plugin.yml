@@ -4,7 +4,15 @@ version: "${VERSION}"
 api-version: "26.1.2"
 author: AUTHOR
 description: DESCRIPTION
+depend:
+  - packetevents
+  - SnapshotPvpPlugin
+  - FastAsyncWorldEdit
 commands:
+  pvecam:
+    description: Manage polynomial and interpolation PVE cameras.
+    usage: /pvecam create <name> [polynomial|interpolation] | list | remove <name> | reset <name> | set <name> <ticks> <x> <y> <z> <pitch> <yaw> | setpoint <name> <point#> <ticks-to-next> [x y z pitch yaw] <type> <easing> | pointlist <name> | pointreset <name> <point#> | pointdeleteall <name> | interpolateAlter <name> <point#> <type> | changeCamType <name> | play <name> <selector> | stop [selector]
+    permission: snapshotpve.camera
   pvewait:
     description: Run a function or command after a delay.
     usage: /pvewait <delayTicks> <function|#function_tag> OR /pvewait <delayTicks> run <command...>
@@ -75,6 +83,9 @@ commands:
     usage: /setpvepvp <true|false>
     permission: snapshotpve.setpvp
 permissions:
+  snapshotpve.camera:
+    description: Allows creating and controlling PVE cameras.
+    default: op
   snapshotpve.wait:
     description: Allows scheduling commands and Minecraft functions.
     default: op

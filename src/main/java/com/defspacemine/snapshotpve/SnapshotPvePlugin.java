@@ -18,6 +18,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.github.retrooper.packetevents.PacketEvents;
 import com.defspacemine.snapshotpvp.lobby.LobbyManager;
 
 import net.kyori.adventure.text.Component;
@@ -29,6 +30,7 @@ public class SnapshotPvePlugin extends JavaPlugin {
 
     // Handy shared handle for helpers that need the plugin instance
     public static SnapshotPvePlugin instance;
+    private SnapshotPveCamera pveCamera;
 
     // Fail loudly when a helper runs before plugin startup
     public static SnapshotPvePlugin getInstance() {
@@ -38,7 +40,6 @@ public class SnapshotPvePlugin extends JavaPlugin {
         );
     }
 
-    // No extra work needed during Bukkit's load phase
     @Override
     public void onLoad() {}
 
@@ -46,6 +47,20 @@ public class SnapshotPvePlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+        if (
+            PacketEvents.getAPI() == null ||
+            !PacketEvents.getAPI().isInitialized()
+        ) {
+            throw new IllegalStateException(
+                "The PacketEvents plugin must be installed and initialized."
+            );
+        }
+        pveCamera = new SnapshotPveCamera(this);
+        Objects.requireNonNull(
+            getCommand("pvecam"),
+            "pvecam command is missing from the plugin descriptor"
+        ).setExecutor(pveCamera);
+        getServer().getPluginManager().registerEvents(pveCamera, this);
         // Checkpoint click-throughs and new prompts share one command
         Objects.requireNonNull(
             getCommand("pvecheckpoint"),
@@ -1018,6 +1033,9 @@ public class SnapshotPvePlugin extends JavaPlugin {
     // Clear per-session prompts, villagers, and lobby maps on shutdown
     @Override
     public void onDisable() {
+        if (pveCamera != null) {
+            pveCamera.stopAll();
+        }
         PveDialogue.clearPendingChoices();
         PvePrologue.clearEntityDialogue();
         PveLobbyType.PveLobbyInstance.clearInstances();

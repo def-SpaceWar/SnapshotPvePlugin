@@ -1,5 +1,92 @@
 # Extending the Example Code
 
+### PVE cameras
+
+Install PacketEvents 2.14.0 or newer alongside this plugin; it provides the version-aware camera
+packets and must be enabled before SnapshotPvePlugin.
+
+Camera definitions are saved in `plugins/SnapshotPvePlugin/snapshotpvecamera.yml`.
+Create a polynomial camera with `/pvecam create <name> polynomial`, or an interpolation camera
+with `/pvecam create <name> interpolation`. Omitting the type keeps the original behavior and
+creates a polynomial camera. Camera type is saved with each definition; old camera files without
+a type continue to load as polynomial cameras.
+
+```text
+/pvecam create flyby polynomial
+/pvecam list
+/pvecam set flyby 100 100+0.2*t 65 -30 0 90
+/pvecam set flyby 40 120-0.1*t 65 -30 0 90
+/pvecam play flyby @a[tag=playingPVE,distance=..32,dimension=pveLobby0,inPVELobby=true]
+/pvecam stop
+/pvecam reset flyby
+/pvecam remove flyby
+```
+
+Polynomial `set` syntax is `/pvecam set <name> <ticks> <x> <y> <z> <pitch> <yaw>`. Each set
+appends a timed segment containing five polynomial equations. Use local elapsed ticks (`t`) and
+powers up to 12; equations are compact (no spaces), for example `100+0.2*t-0.001*t^2`.
+Supported operators are `+`, `-`, `*`, division by a constant, parentheses, and integer powers.
+Arbitrary functions such as `sin(t)` are not supported. Coordinates are absolute and are applied
+in each target's current world. Pitch and yaw are in degrees. To avoid a snap between segments,
+the next segment must start where the previous segment ended.
+
+Interpolation cameras use numbered points and interpolate between consecutive points:
+
+```text
+/pvecam create dolly interpolation
+/pvecam setpoint dolly 1 40 6 72 35 0 0 linear 0
+/pvecam setpoint dolly 2 60 12 76 35 0 90 sinusoidal 2
+/pvecam setpoint dolly 3 40 6 72 35 0 180 exponential 1
+/pvecam setpoint dolly 4 0 linear 0
+/pvecam pointlist dolly
+/pvecam play dolly @a
+```
+
+`setpoint` syntax is `/pvecam setpoint <name> <point#> <ticks-to-next> [<x> <y> <z> <pitch> <yaw>] <linear|sinusoidal|exponential> <easing 0-4>`.
+Point numbers start at 1 and must be consecutive; setting an existing number replaces that point.
+Each point's duration, interpolation type, and easing factor control its segment to the next
+point. The final point has no outgoing segment, so its ticks-to-next value is ignored. A playable
+path needs at least two points. Coordinates are absolute and applied in each target's current
+world. If all five position and rotation values are omitted, the point captures the executing
+player's current position and rotation, or the command block's position. This form requires a
+player or command-block sender; console must provide explicit coordinates. The easing argument
+is required in both forms; use `0` for the selected curve's default easing.
+
+`linear` uses a linear curve, `sinusoidal` uses a cosine ease-in/out curve, and `exponential`
+uses an exponential ease-in/out curve. Easing factor 0 uses that curve unchanged. Factors 1–4
+progressively strengthen the ease by remapping progress `v` to
+`v^(1+factor) / (v^(1+factor) + (1-v)^(1+factor))`. The alternate spelling `sinosudial` is also
+accepted.
+
+`pointlist <name>` displays numbered points and their outgoing interpolation settings.
+`pointreset <name> <point#>` removes a point and renumbers later points; `pointdeleteall <name>`
+clears all points. `interpolateAlter <name> <point#> <type>` changes the outgoing curve for that
+point. `changeCamType <name>` toggles between polynomial and interpolation and clears the path.
+`reset <name>` clears the current path but keeps its type; `remove <name>` deletes the camera.
+Resetting, deleting points, changing type, or removing a camera stops its active sessions and
+restores affected players. `list` displays cameras, types, and path sizes.
+
+Polynomial equations and interpolation points are stored on the named camera, so `play` only
+needs its name and a player selector.
+
+Only player selectors `@a`, `@p`, and `@r` are accepted. Optional filters are scoreboard
+`tag=`, `distance=`, `dimension=`, `gamemode=`, and `inPVELobby=`. Distance is measured from the
+player or command-block execution position; `@p` also requires that position. `dimension=` accepts
+a world name or a vanilla dimension name. `inPVELobby=true` selects players in the same managed
+PVE lobby instance as the player or command block running the command; run it from that lobby.
+`inPVELobby=false` selects players outside all managed PVE lobbies.
+
+Playback switches selected players to spectator mode and uses a client-side camera marker. The
+player is moved only when the camera is more than one chunk away, to keep camera-area chunks
+streaming; normal player movement and external teleports are blocked during playback. The
+player receives the scoreboard tag `pveCam` while the camera is active; the plugin removes that
+tag when playback ends if it added it. Camera chunk-staging and player-restoration teleports are
+still allowed. A short initial chunk warm-up is used. On completion or `/pvecam stop`, the camera
+is reset and the player's saved location, game mode, flight state, fall distance, and velocity
+are restored. With no selector, a player stops their own camera; console or a command block
+stops all active cameras. `stop` also accepts the same selector syntax. The command requires
+`snapshotpve.camera` (operators by default).
+
 ### Delayed commands and Minecraft functions
 
 ```text

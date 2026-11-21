@@ -93,6 +93,7 @@ Quote the `-Pver` value to stop the shell/PowerShell from mangling the `=`.
 After adding a dependency, check whether `shadowJar` in `build.gradle.kts` needs a new
 `relocate(...)` entry (to avoid classloader clashes with other plugins on the same server) and
 a `minimize { exclude(...) }` entry — see the first Gotcha below for why this matters.
+PacketEvents is a required runtime server plugin and must remain `compileOnly` here.
 
 Keep these in sync with the current state of the project:
 

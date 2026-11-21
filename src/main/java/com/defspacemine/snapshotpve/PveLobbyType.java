@@ -739,7 +739,8 @@ public class PveLobbyType extends LobbyType {
             Player player = event.getPlayer();
             if (
                 !managedWorldNames.contains(player.getWorld().getName()) ||
-                !player.getScoreboardTags().contains("spectatingPVE")
+                !player.getScoreboardTags().contains("spectatingPVE") ||
+                player.getScoreboardTags().contains(SnapshotPveCamera.ACTIVE_TAG)
             ) {
                 return;
             }
