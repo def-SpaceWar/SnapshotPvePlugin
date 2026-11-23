@@ -123,6 +123,7 @@ testing {
             dependencies {
                 implementation(sourceSets.main.get().output)
                 implementation("io.papermc.paper:paper-api:26.2.build.132-stable")
+                runtimeOnly("com.github.retrooper:packetevents-spigot:2.14.0")
             }
 
             targets {

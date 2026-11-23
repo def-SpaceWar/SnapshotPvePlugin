@@ -311,6 +311,13 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
     }
 
     private void setPoint(CommandSender sender, String[] args) {
+        // Preserve the existing setpoint syntax for a camera named "edit".
+        if (args.length >= 2 && args[1].equalsIgnoreCase("edit")
+            && (args.length != 11 && (args.length != 6
+                || !isInterpolationType(args[4])))) {
+            editPoint(sender, args);
+            return;
+        }
         boolean useSenderPosition = args.length == 6;
         boolean hasExplicitPosition = args.length == 11;
         if (!useSenderPosition && !hasExplicitPosition) {
@@ -382,6 +389,62 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
                 name +
                 "'."
         );
+    }
+
+    private static boolean isInterpolationType(String value) {
+        try {
+            CameraInterpolation.parseType(value);
+            return true;
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    private void editPoint(CommandSender sender, String[] args) {
+        if (args.length != 6) {
+            sender.sendMessage(
+                "Usage: /pvecam setpoint edit <name> <point#> "
+                    + "<ticks|x|y|z|pitch|yaw|type|easing> <value>"
+            );
+            return;
+        }
+
+        String name = normalizeName(args[2]);
+        CameraDefinition definition = requireInterpolationCamera(name);
+        int pointNumber = parsePointNumber(args[3]);
+        CameraDefinition updated = definition.copy();
+        editInterpolationPoint(
+            updated.interpolationPoints, name, pointNumber, args[4], args[5]
+        );
+        cameras.put(name, updated);
+        if (!saveCameras(sender)) {
+            cameras.put(name, definition);
+            return;
+        }
+        sender.sendMessage(
+            "Updated point " + pointNumber + " for interpolation camera '" + name + "'."
+        );
+    }
+
+    static void editInterpolationPoint(
+        List<InterpolationPoint> points,
+        String name,
+        int pointNumber,
+        String parameter,
+        String value
+    ) {
+        if (pointNumber < 1 || pointNumber > points.size()) {
+            throw new IllegalArgumentException(
+                "Camera '" + name + "' has no point " + pointNumber + "."
+            );
+        }
+        List<InterpolationPoint> updated = new ArrayList<>(points);
+        updated.set(
+            pointNumber - 1,
+            points.get(pointNumber - 1).withEditedParameter(parameter, value)
+        );
+        validateInterpolationPath(updated, name);
+        points.set(pointNumber - 1, updated.get(pointNumber - 1));
     }
 
     private void listPoints(CommandSender sender, String[] args) {
@@ -650,6 +713,12 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
         double z = parseFiniteDouble(args[offset + 2], "z");
         double pitch = parseFiniteDouble(args[offset + 3], "pitch");
         double yaw = parseFiniteDouble(args[offset + 4], "yaw");
+        return validatedPointLocation(x, y, z, pitch, yaw);
+    }
+
+    private static CameraPoint validatedPointLocation(
+        double x, double y, double z, double pitch, double yaw
+    ) {
         if (Math.abs(x) > 29_999_984 || Math.abs(z) > 29_999_984) {
             throw new IllegalArgumentException(
                 "Camera coordinates must stay within the world border."
@@ -1175,7 +1244,7 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
         }
     }
 
-    private void validateInterpolationPath(
+    private static void validateInterpolationPath(
         List<InterpolationPoint> points,
         String name
     ) {
@@ -1349,6 +1418,7 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
                 + "| remove <name> | reset <name> | set <name> <ticks> "
                 + "<x> <y> <z> <pitch> <yaw> | setpoint <name> <point#> "
                 + "<ticks-to-next> <x> <y> <z> <pitch> <yaw> <type> <easing> "
+                + "| setpoint edit <name> <point#> <ticks|x|y|z|pitch|yaw|type|easing> <value> "
                 + "| pointlist <name> | pointreset <name> <point#> "
                 + "| pointdeleteall <name> | interpolateAlter <name> <point#> <type> "
                 + "| changeCamType <name> | play <name> <selector> | stop [selector]"
@@ -1559,7 +1629,7 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
         CameraPoint evaluate(double ticks);
     }
 
-    private static final class InterpolationPoint {
+    static final class InterpolationPoint {
         private final CameraPoint location;
         private final long durationTicks;
         private final CameraInterpolation.Type interpolationType;
@@ -1615,6 +1685,33 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
                 durationTicks,
                 newType,
                 easingFactor
+            );
+        }
+
+        InterpolationPoint withEditedParameter(String parameter, String value) {
+            double x = location.x;
+            double y = location.y;
+            double z = location.z;
+            double pitch = location.pitch;
+            double yaw = location.yaw;
+            long ticks = durationTicks;
+            CameraInterpolation.Type type = interpolationType;
+            int easing = easingFactor;
+            switch (parameter.toLowerCase(Locale.ROOT)) {
+                case "ticks" -> ticks = parsePointDuration(value);
+                case "x" -> x = parseFiniteDouble(value, "x");
+                case "y" -> y = parseFiniteDouble(value, "y");
+                case "z" -> z = parseFiniteDouble(value, "z");
+                case "pitch" -> pitch = parseFiniteDouble(value, "pitch");
+                case "yaw" -> yaw = parseFiniteDouble(value, "yaw");
+                case "type" -> type = CameraInterpolation.parseType(value);
+                case "easing" -> easing = parseEasingFactor(value);
+                default -> throw new IllegalArgumentException(
+                    "Parameter must be ticks, x, y, z, pitch, yaw, type, or easing."
+                );
+            }
+            return new InterpolationPoint(
+                validatedPointLocation(x, y, z, pitch, yaw), ticks, type, easing
             );
         }
 
@@ -1982,7 +2079,7 @@ public final class SnapshotPveCamera implements CommandExecutor, Listener {
         }
     }
 
-    private static final class CameraPoint {
+    static final class CameraPoint {
         private final double x;
         private final double y;
         private final double z;

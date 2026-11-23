@@ -11,7 +11,7 @@ depend:
 commands:
   pvecam:
     description: Manage polynomial and interpolation PVE cameras.
-    usage: /pvecam create <name> [polynomial|interpolation] | list | remove <name> | reset <name> | set <name> <ticks> <x> <y> <z> <pitch> <yaw> | setpoint <name> <point#> <ticks-to-next> [x y z pitch yaw] <type> <easing> | pointlist <name> | pointreset <name> <point#> | pointdeleteall <name> | interpolateAlter <name> <point#> <type> | changeCamType <name> | play <name> <selector> | stop [selector]
+    usage: /pvecam create <name> [polynomial|interpolation] | list | remove <name> | reset <name> | set <name> <ticks> <x> <y> <z> <pitch> <yaw> | setpoint <name> <point#> <ticks-to-next> [x y z pitch yaw] <type> <easing> | setpoint edit <name> <point#> <ticks|x|y|z|pitch|yaw|type|easing> <value> | pointlist <name> | pointreset <name> <point#> | pointdeleteall <name> | interpolateAlter <name> <point#> <type> | changeCamType <name> | play <name> <selector> | stop [selector]
     permission: snapshotpve.camera
   pvewait:
     description: Run a function or command after a delay.

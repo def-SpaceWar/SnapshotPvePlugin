@@ -38,6 +38,7 @@ Interpolation cameras use numbered points and interpolate between consecutive po
 /pvecam setpoint dolly 2 60 12 76 35 0 90 sinusoidal 2
 /pvecam setpoint dolly 3 40 6 72 35 0 180 exponential 1
 /pvecam setpoint dolly 4 0 linear 0
+/pvecam setpoint edit dolly 2 yaw 135
 /pvecam pointlist dolly
 /pvecam play dolly @a
 ```
@@ -51,6 +52,11 @@ world. If all five position and rotation values are omitted, the point captures 
 player's current position and rotation, or the command block's position. This form requires a
 player or command-block sender; console must provide explicit coordinates. The easing argument
 is required in both forms; use `0` for the selected curve's default easing.
+
+Use `/pvecam setpoint edit <name> <point#> <ticks|x|y|z|pitch|yaw|type|easing> <value>`
+to change one parameter of an existing point without replacing its other settings. `ticks` is
+the duration to the next point, `type` accepts the interpolation types below, and `easing`
+accepts 0–4. The same position, rotation, and duration restrictions as `setpoint` apply.
 
 `linear` uses a linear curve, `sinusoidal` uses a cosine ease-in/out curve, and `exponential`
 uses an exponential ease-in/out curve. Easing factor 0 uses that curve unchanged. Factors 1–4
