@@ -76,7 +76,7 @@ repositories {
 val mockitoAgent = configurations.create("mockitoAgent")
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.132-stable")
+    compileOnly("io.papermc.paper:paper-api:26.3.build.264-stable")
     compileOnly(files("libs/SnapshotPvpPlugin.jar"))
     compileOnly("com.github.retrooper:packetevents-spigot:2.14.0")
     implementation(platform("com.intellectualsites.bom:bom-newest:1.56"))
@@ -122,7 +122,7 @@ testing {
 
             dependencies {
                 implementation(sourceSets.main.get().output)
-                implementation("io.papermc.paper:paper-api:26.2.build.132-stable")
+                implementation("io.papermc.paper:paper-api:26.3.build.264-stable")
                 runtimeOnly("com.github.retrooper:packetevents-spigot:2.14.0")
             }
 
